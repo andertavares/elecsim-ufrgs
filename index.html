@@ -91,13 +91,17 @@
   <div class="palette-item" draggable="true" data-type="transistor">
     <span class="icon">🔲</span>Transistor
   </div>
+  <div class="palette-item" draggable="true" data-type="connector">
+    <span class="icon">🔗</span>Conector
+  </div>
   <hr style="border-color:#0f3460;margin-top:6px"/>
   <div style="font-size:11px;color:#aaa;line-height:1.5">
     <b>Como usar:</b><br>
     1. Arraste um componente<br>
-    2. Clique em <b>Fio</b> para conectar pinos<br>
-    3. Clique nos interruptores para abrir/fechar<br>
-    4. O transistor conduz quando a base recebe corrente
+    2. Clique na ponta de um componente e depois na de outro para criar o fio<br>
+    3. Use o <b>Conector</b> para derivações e junções de fios<br>
+    4. Clique nos interruptores para abrir/fechar<br>
+    5. O transistor conduz quando a base recebe corrente
   </div>
 </div>
 
@@ -118,15 +122,6 @@ const ctx = canvas.getContext('2d');
 const area = document.getElementById('canvas-area');
 
 let W, H;
-function resize() {
-  W = area.clientWidth; H = area.clientHeight;
-  canvas.width = W; canvas.height = H;
-  draw();
-}
-window.addEventListener('resize', resize);
-resize();
-
-// --- State ---
 let components = []; // {id, type, x, y, state, ...}
 let wires = [];      // {id, fromComp, fromPin, toComp, toPin}
 let tool = 'select';
@@ -135,6 +130,14 @@ let dragComp = null;
 let dragOffX = 0, dragOffY = 0;
 let nextId = 1;
 let hoveredPin = null;
+
+function resize() {
+  W = area.clientWidth; H = area.clientHeight;
+  canvas.width = W; canvas.height = H;
+  draw();
+}
+window.addEventListener('resize', resize);
+resize();
 
 // --- Component definitions ---
 // Each component has named pins with relative positions
@@ -163,6 +166,13 @@ function getPins(comp) {
         emitter:   {x: x+30, y: y+70},
         base:      {x: x,    y: y+35}
       };
+    case 'connector':
+      return {
+        n: {x: x+20, y: y},
+        e: {x: x+40, y: y+20},
+        s: {x: x+20, y: y+40},
+        w: {x: x,    y: y+20}
+      };
     default: return {};
   }
 }
@@ -173,6 +183,7 @@ function compSize(type) {
     case 'switch':     return {w:60, h:40};
     case 'lamp':       return {w:50, h:60};
     case 'transistor': return {w:50, h:70};
+    case 'connector':  return {w:40, h:40};
     default:           return {w:60, h:60};
   }
 }
@@ -214,6 +225,19 @@ function simulate() {
     // Apply component logic
     for (const c of components) {
       switch(c.type) {
+        case 'connector': {
+          const pins = ['n', 'e', 's', 'w'];
+          const anyHigh = pins.some(pin => c.voltage[pin] === true);
+          if (anyHigh) {
+            for (const pin of pins) {
+              if (c.voltage[pin] !== true) {
+                c.voltage[pin] = true;
+                changed = true;
+              }
+            }
+          }
+          break;
+        }
         case 'switch':
           if (c.closed) {
             if (c.voltage.a === true && c.voltage.b !== true) { c.voltage.b = true; changed = true; }
@@ -323,6 +347,7 @@ function drawComponent(c) {
     case 'switch':  drawSwitch(c); break;
     case 'lamp':    drawLamp(c); break;
     case 'transistor': drawTransistor(c); break;
+    case 'connector': drawConnector(c); break;
   }
 
   // Selection highlight
@@ -493,6 +518,31 @@ function drawTransistor(c) {
   ctx.fillText('NPN', x+10, y+7);
 }
 
+function drawConnector(c) {
+  const {x, y} = c;
+  const pins = getPins(c);
+  const energized = Object.entries(pins).some(([name, pos]) => c.voltage && c.voltage[name] === true);
+
+  ctx.fillStyle = energized ? '#ffdd00' : '#2d4a7a';
+  ctx.beginPath();
+  ctx.arc(x+20, y+20, 12, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = '#7ab4f5';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.strokeStyle = '#aaa';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x+20, y+12); ctx.lineTo(x+20, y+8); ctx.lineTo(x+20, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+28, y+20); ctx.lineTo(x+32, y+20); ctx.lineTo(x+40, y+20); ctx.lineTo(x+48, y+20); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+20, y+28); ctx.lineTo(x+20, y+32); ctx.lineTo(x+20, y+40); ctx.lineTo(x+20, y+48); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+12, y+20); ctx.lineTo(x+8, y+20); ctx.lineTo(x, y+20); ctx.stroke();
+
+  ctx.fillStyle = '#ddd';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('JUN', x+8, y+6);
+}
+
 // --- Interaction ---
 let mouseX = 0, mouseY = 0;
 
@@ -637,17 +687,23 @@ let dragType = null;
 document.querySelectorAll('.palette-item').forEach(item => {
   item.addEventListener('dragstart', e => {
     dragType = item.dataset.type;
-    e.dataTransfer.setData('text/plain', dragType);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('text/plain', dragType);
+    }
+  });
+  item.addEventListener('dragend', () => {
+    dragType = null;
   });
 });
 
-area.addEventListener('dragover', e => e.preventDefault());
-area.addEventListener('drop', e => {
+const handleDrop = e => {
   e.preventDefault();
+  e.stopPropagation();
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left - 30;
   const y = e.clientY - rect.top  - 25;
-  const type = dragType || e.dataTransfer.getData('text/plain');
+  const type = dragType || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
   if (!type) return;
   const comp = {
     id: nextId++,
@@ -663,7 +719,12 @@ area.addEventListener('drop', e => {
   simulate();
   draw();
   dragType = null;
-});
+};
+
+area.addEventListener('dragover', e => e.preventDefault());
+canvas.addEventListener('dragover', e => e.preventDefault());
+area.addEventListener('drop', handleDrop);
+canvas.addEventListener('drop', handleDrop);
 
 // --- Tools ---
 function setTool(t) {
