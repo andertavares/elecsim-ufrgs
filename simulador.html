@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulador de Circuitos Elétricos</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #1a1a2e; color: #eee; display: flex; height: 100vh; overflow: hidden; }
+
+    #sidebar {
+      width: 160px;
+      background: #16213e;
+      border-right: 2px solid #0f3460;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      user-select: none;
+    }
+    #sidebar h2 { font-size: 13px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+
+    .palette-item {
+      background: #0f3460;
+      border: 2px solid #e94560;
+      border-radius: 8px;
+      padding: 10px 6px;
+      text-align: center;
+      cursor: grab;
+      font-size: 12px;
+      transition: background 0.15s;
+    }
+    .palette-item:hover { background: #e94560; }
+    .palette-item .icon { font-size: 28px; display: block; }
+
+    #canvas-area {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    #canvas {
+      position: absolute;
+      top: 0; left: 0;
+    }
+
+    #info {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.6);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      pointer-events: none;
+      color: #ccc;
+    }
+
+    #toolbar {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 8px;
+    }
+    .tool-btn {
+      background: #0f3460;
+      border: 1px solid #e94560;
+      color: #eee;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .tool-btn.active { background: #e94560; }
+    .tool-btn:hover { opacity: 0.85; }
+  </style>
+</head>
+<body>
+<div id="sidebar">
+  <h2>Componentes</h2>
+  <div class="palette-item" draggable="true" data-type="battery">
+    <span class="icon">🔋</span>Bateria
+  </div>
+  <div class="palette-item" draggable="true" data-type="switch">
+    <span class="icon">🔘</span>Interruptor
+  </div>
+  <div class="palette-item" draggable="true" data-type="lamp">
+    <span class="icon">💡</span>Lâmpada
+  </div>
+  <div class="palette-item" draggable="true" data-type="transistor">
+    <span class="icon">🔲</span>Transistor
+  </div>
+  <hr style="border-color:#0f3460;margin-top:6px"/>
+  <div style="font-size:11px;color:#aaa;line-height:1.5">
+    <b>Como usar:</b><br>
+    1. Arraste um componente<br>
+    2. Clique em <b>Fio</b> para conectar pinos<br>
+    3. Clique nos interruptores para abrir/fechar<br>
+    4. O transistor conduz quando a base recebe corrente
+  </div>
+</div>
+
+<div id="canvas-area">
+  <canvas id="canvas"></canvas>
+  <div id="toolbar">
+    <button class="tool-btn active" id="btn-select" onclick="setTool('select')">✋ Selecionar</button>
+    <button class="tool-btn" id="btn-wire" onclick="setTool('wire')">〰️ Fio</button>
+    <button class="tool-btn" id="btn-delete" onclick="setTool('delete')">🗑️ Deletar</button>
+    <button class="tool-btn" onclick="clearAll()">🔄 Limpar</button>
+  </div>
+  <div id="info">Arraste componentes da barra lateral para a área de simulação</div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const area = document.getElementById('canvas-area');
+
+let W, H;
+function resize() {
+  W = area.clientWidth; H = area.clientHeight;
+  canvas.width = W; canvas.height = H;
+  draw();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- State ---
+let components = []; // {id, type, x, y, state, ...}
+let wires = [];      // {id, fromComp, fromPin, toComp, toPin}
+let tool = 'select';
+let wireStart = null; // {comp, pin}
+let dragComp = null;
+let dragOffX = 0, dragOffY = 0;
+let nextId = 1;
+let hoveredPin = null;
+
+// --- Component definitions ---
+// Each component has named pins with relative positions
+function getPins(comp) {
+  const {type, x, y} = comp;
+  switch(type) {
+    case 'battery':
+      return {
+        pos: {x: x+60, y: y+25},  // positive terminal
+        neg: {x: x,    y: y+25}   // negative terminal
+      };
+    case 'switch':
+      return {
+        a: {x: x,    y: y+20},
+        b: {x: x+60, y: y+20}
+      };
+    case 'lamp':
+      return {
+        a: {x: x+25, y: y},
+        b: {x: x+25, y: y+60}
+      };
+    case 'transistor':
+      // NPN-like: collector (top), emitter (bottom), base (left)
+      return {
+        collector: {x: x+30, y: y},
+        emitter:   {x: x+30, y: y+70},
+        base:      {x: x,    y: y+35}
+      };
+    default: return {};
+  }
+}
+
+function compSize(type) {
+  switch(type) {
+    case 'battery':    return {w:70, h:50};
+    case 'switch':     return {w:60, h:40};
+    case 'lamp':       return {w:50, h:60};
+    case 'transistor': return {w:50, h:70};
+    default:           return {w:60, h:60};
+  }
+}
+
+// --- Simulation ---
+function simulate() {
+  // Reset voltages
+  components.forEach(c => { c.voltage = {}; });
+
+  // Battery sets pos terminal to HIGH, neg to LOW
+  components.filter(c => c.type === 'battery').forEach(bat => {
+    bat.voltage.pos = true;
+    bat.voltage.neg = false;
+  });
+
+  // Iteratively propagate (simple fixed-point, up to 20 iterations)
+  for (let iter = 0; iter < 20; iter++) {
+    let changed = false;
+
+    for (const wire of wires) {
+      const fc = compById(wire.fromComp);
+      const tc = compById(wire.toComp);
+      if (!fc || !tc) continue;
+
+      const fv = fc.voltage[wire.fromPin];
+      const tv = tc.voltage[wire.toPin];
+
+      // Propagate HIGH across wire if source is HIGH
+      if (fv === true && tv !== true) {
+        tc.voltage[wire.toPin] = true;
+        changed = true;
+      }
+      if (tv === true && fv !== true) {
+        fc.voltage[wire.fromPin] = true;
+        changed = true;
+      }
+    }
+
+    // Apply component logic
+    for (const c of components) {
+      switch(c.type) {
+        case 'switch':
+          if (c.closed) {
+            if (c.voltage.a === true && c.voltage.b !== true) { c.voltage.b = true; changed = true; }
+            if (c.voltage.b === true && c.voltage.a !== true) { c.voltage.a = true; changed = true; }
+          }
+          break;
+        case 'transistor': {
+          // NPN: conducts collector→emitter when base is HIGH
+          const baseHigh = c.voltage.base === true;
+          if (baseHigh) {
+            if (c.voltage.collector === true && c.voltage.emitter !== true) { c.voltage.emitter = true; changed = true; }
+            if (c.voltage.emitter === true && c.voltage.collector !== true) { c.voltage.collector = true; changed = true; }
+          }
+          break;
+        }
+        case 'lamp':
+          c.on = (c.voltage.a === true || c.voltage.b === true);
+          break;
+      }
+    }
+    if (!changed) break;
+  }
+
+  // Final lamp state
+  components.filter(c => c.type === 'lamp').forEach(c => {
+    c.on = (c.voltage.a === true || c.voltage.b === true);
+  });
+}
+
+function compById(id) { return components.find(c => c.id === id); }
+
+// --- Drawing ---
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = '#1e2a45';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 20) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 20) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Wires
+  for (const wire of wires) {
+    const fc = compById(wire.fromComp);
+    const tc = compById(wire.toComp);
+    if (!fc || !tc) continue;
+    const fp = getPins(fc)[wire.fromPin];
+    const tp = getPins(tc)[wire.toPin];
+    if (!fp || !tp) continue;
+    const energized = fc.voltage[wire.fromPin] === true || tc.voltage[wire.toPin] === true;
+    ctx.strokeStyle = energized ? '#ffdd00' : '#4a6fa5';
+    ctx.lineWidth = energized ? 3 : 2;
+    ctx.beginPath();
+    ctx.moveTo(fp.x, fp.y);
+    // Route with right angles
+    const mx = (fp.x + tp.x) / 2;
+    ctx.lineTo(mx, fp.y);
+    ctx.lineTo(mx, tp.y);
+    ctx.lineTo(tp.x, tp.y);
+    ctx.stroke();
+  }
+
+  // Wire-in-progress
+  if (tool === 'wire' && wireStart) {
+    const fc = compById(wireStart.comp);
+    if (fc) {
+      const fp = getPins(fc)[wireStart.pin];
+      if (fp) {
+        ctx.strokeStyle = '#e94560';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5,4]);
+        ctx.beginPath();
+        ctx.moveTo(fp.x, fp.y);
+        ctx.lineTo(mouseX, mouseY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // Components
+  for (const c of components) {
+    drawComponent(c);
+  }
+
+  // Hovered pin highlight
+  if (hoveredPin) {
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(hoveredPin.x, hoveredPin.y, 8, 0, Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+function drawComponent(c) {
+  const {type, x, y} = c;
+  const sz = compSize(type);
+
+  ctx.save();
+
+  switch(type) {
+    case 'battery': drawBattery(c); break;
+    case 'switch':  drawSwitch(c); break;
+    case 'lamp':    drawLamp(c); break;
+    case 'transistor': drawTransistor(c); break;
+  }
+
+  // Selection highlight
+  if (c.selected) {
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4,3]);
+    ctx.strokeRect(x-4, y-4, sz.w+8, sz.h+8);
+    ctx.setLineDash([]);
+  }
+
+  // Draw pins
+  const pins = getPins(c);
+  for (const [name, pos] of Object.entries(pins)) {
+    const energized = c.voltage && c.voltage[name] === true;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 5, 0, Math.PI*2);
+    ctx.fillStyle = energized ? '#ffdd00' : '#4a6fa5';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Pin label
+    ctx.fillStyle = '#aaa';
+    ctx.font = '9px sans-serif';
+    ctx.fillText(name, pos.x + 7, pos.y + 3);
+  }
+
+  ctx.restore();
+}
+
+function drawBattery(c) {
+  const {x, y} = c;
+  // Body
+  ctx.fillStyle = '#2d4a7a';
+  ctx.beginPath();
+  ctx.roundRect(x+5, y+5, 50, 40, 6);
+  ctx.fill();
+  ctx.strokeStyle = '#5a8fd4';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Symbol lines
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  // negative (short)
+  ctx.beginPath(); ctx.moveTo(x+18, y+15); ctx.lineTo(x+18, y+35); ctx.stroke();
+  // positive (tall)
+  ctx.beginPath(); ctx.moveTo(x+37, y+12); ctx.lineTo(x+37, y+38); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+30, y+25); ctx.lineTo(x+44, y+25); ctx.stroke();
+
+  // Terminals
+  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x, y+25); ctx.lineTo(x+18, y+25); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+37, y+25); ctx.lineTo(x+60, y+25); ctx.stroke();
+
+  // Label
+  ctx.fillStyle = '#ccc'; ctx.font = 'bold 10px sans-serif';
+  ctx.fillText('BAT', x+20, y+4);
+  ctx.fillStyle = '#5a8fd4'; ctx.font = '9px sans-serif';
+  ctx.fillText('+', x+58, y+22);
+  ctx.fillText('−', x+2, y+22);
+}
+
+function drawSwitch(c) {
+  const {x, y} = c;
+  ctx.fillStyle = c.closed ? '#2a6b3a' : '#3a2a2a';
+  ctx.beginPath();
+  ctx.roundRect(x+2, y+5, 56, 30, 6);
+  ctx.fill();
+  ctx.strokeStyle = c.closed ? '#4caf50' : '#888';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Wire lines
+  ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x, y+20); ctx.lineTo(x+20, y+20); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+40, y+20); ctx.lineTo(x+60, y+20); ctx.stroke();
+
+  // Moving contact
+  ctx.strokeStyle = c.closed ? '#4caf50' : '#e94560';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x+20, y+20);
+  ctx.lineTo(c.closed ? x+40 : x+38, c.closed ? y+20 : y+13);
+  ctx.stroke();
+
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif';
+  ctx.fillText(c.closed ? 'FECHADO' : 'ABERTO', x+8, y+4);
+}
+
+function drawLamp(c) {
+  const {x, y} = c;
+  // Glow
+  if (c.on) {
+    const grd = ctx.createRadialGradient(x+25, y+28, 2, x+25, y+28, 28);
+    grd.addColorStop(0, 'rgba(255,230,50,0.7)');
+    grd.addColorStop(1, 'rgba(255,230,50,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(x+25, y+28, 28, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Bulb
+  ctx.beginPath();
+  ctx.arc(x+25, y+22, 16, 0, Math.PI*2);
+  ctx.fillStyle = c.on ? '#ffe87c' : '#333';
+  ctx.fill();
+  ctx.strokeStyle = c.on ? '#ffcc00' : '#666';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Base
+  ctx.fillStyle = '#555';
+  ctx.fillRect(x+17, y+35, 16, 10);
+
+  // Terminals
+  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x+25, y); ctx.lineTo(x+25, y+6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+25, y+45); ctx.lineTo(x+25, y+60); ctx.stroke();
+
+  ctx.fillStyle = c.on ? '#ffe87c' : '#aaa';
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText(c.on ? 'LIGADA' : 'DESLIG.', x+1, y+58);
+}
+
+function drawTransistor(c) {
+  const {x, y} = c;
+  ctx.fillStyle = '#1e3a5f';
+  ctx.beginPath();
+  ctx.roundRect(x+8, y+8, 34, 54, 6);
+  ctx.fill();
+  ctx.strokeStyle = '#5a8fd4'; ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Collector (top)
+  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x+30, y); ctx.lineTo(x+30, y+15); ctx.stroke();
+  // Emitter (bottom) with arrow
+  ctx.beginPath(); ctx.moveTo(x+30, y+55); ctx.lineTo(x+30, y+70); ctx.stroke();
+  // Base (left)
+  ctx.beginPath(); ctx.moveTo(x, y+35); ctx.lineTo(x+12, y+35); ctx.stroke();
+
+  // Internal symbol
+  ctx.strokeStyle = '#7ab4f5'; ctx.lineWidth = 2;
+  // Vertical bar
+  ctx.beginPath(); ctx.moveTo(x+18, y+20); ctx.lineTo(x+18, y+50); ctx.stroke();
+  // Collector arm
+  ctx.beginPath(); ctx.moveTo(x+18, y+28); ctx.lineTo(x+30, y+15); ctx.stroke();
+  // Emitter arm
+  ctx.beginPath(); ctx.moveTo(x+18, y+42); ctx.lineTo(x+30, y+55); ctx.stroke();
+  // Arrow on emitter
+  const ex = x+24, ey = y+48;
+  ctx.beginPath();
+  ctx.moveTo(ex+4, ey-4);
+  ctx.lineTo(ex+8, ey+2);
+  ctx.lineTo(ex, ey+2);
+  ctx.closePath();
+  ctx.fillStyle = '#7ab4f5';
+  ctx.fill();
+
+  // Conducting indicator
+  const conducting = c.voltage && c.voltage.base === true;
+  ctx.fillStyle = conducting ? '#4caf50' : '#555';
+  ctx.beginPath(); ctx.arc(x+25, y+35, 5, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = '#aaa'; ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('NPN', x+10, y+7);
+}
+
+// --- Interaction ---
+let mouseX = 0, mouseY = 0;
+
+canvas.addEventListener('mousemove', e => {
+  mouseX = e.offsetX; mouseY = e.offsetY;
+  hoveredPin = null;
+
+  if (dragComp) {
+    dragComp.x = mouseX - dragOffX;
+    dragComp.y = mouseY - dragOffY;
+    simulate();
+    draw();
+    return;
+  }
+
+  if (tool === 'wire' || true) {
+    for (const c of components) {
+      const pins = getPins(c);
+      for (const [name, pos] of Object.entries(pins)) {
+        const dx = pos.x - mouseX, dy = pos.y - mouseY;
+        if (Math.sqrt(dx*dx+dy*dy) < 10) {
+          hoveredPin = {x: pos.x, y: pos.y, comp: c.id, pin: name};
+          break;
+        }
+      }
+      if (hoveredPin) break;
+    }
+  }
+  draw();
+});
+
+canvas.addEventListener('mousedown', e => {
+  mouseX = e.offsetX; mouseY = e.offsetY;
+
+  if (tool === 'select') {
+    // Check pin click (for deselection)
+    // Check component click
+    components.forEach(c => c.selected = false);
+    for (let i = components.length-1; i >= 0; i--) {
+      const c = components[i];
+      const sz = compSize(c.type);
+      if (mouseX >= c.x && mouseX <= c.x+sz.w && mouseY >= c.y && mouseY <= c.y+sz.h) {
+        c.selected = true;
+        dragComp = c;
+        dragOffX = mouseX - c.x;
+        dragOffY = mouseY - c.y;
+        break;
+      }
+    }
+    simulate(); draw();
+  }
+
+  if (tool === 'wire') {
+    if (hoveredPin) {
+      if (!wireStart) {
+        wireStart = {comp: hoveredPin.comp, pin: hoveredPin.pin};
+      } else {
+        // Complete wire
+        if (wireStart.comp !== hoveredPin.comp) {
+          wires.push({
+            id: nextId++,
+            fromComp: wireStart.comp,
+            fromPin:  wireStart.pin,
+            toComp:   hoveredPin.comp,
+            toPin:    hoveredPin.pin
+          });
+        }
+        wireStart = null;
+        simulate(); draw();
+      }
+    } else {
+      wireStart = null;
+    }
+    draw();
+  }
+
+  if (tool === 'delete') {
+    // Delete component under mouse
+    for (let i = components.length-1; i >= 0; i--) {
+      const c = components[i];
+      const sz = compSize(c.type);
+      if (mouseX >= c.x && mouseX <= c.x+sz.w && mouseY >= c.y && mouseY <= c.y+sz.h) {
+        wires = wires.filter(w => w.fromComp !== c.id && w.toComp !== c.id);
+        components.splice(i, 1);
+        simulate(); draw();
+        return;
+      }
+    }
+    // Delete wire under mouse
+    for (let i = wires.length-1; i >= 0; i--) {
+      const w = wires[i];
+      const fc = compById(w.fromComp), tc = compById(w.toComp);
+      if (!fc || !tc) continue;
+      const fp = getPins(fc)[w.fromPin], tp = getPins(tc)[w.toPin];
+      if (!fp || !tp) continue;
+      if (pointNearSegment(mouseX, mouseY, fp, tp)) {
+        wires.splice(i, 1);
+        simulate(); draw();
+        return;
+      }
+    }
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  dragComp = null;
+});
+
+canvas.addEventListener('click', e => {
+  mouseX = e.offsetX; mouseY = e.offsetY;
+  if (tool !== 'select') return;
+
+  // Toggle switch
+  for (let i = components.length-1; i >= 0; i--) {
+    const c = components[i];
+    if (c.type !== 'switch') continue;
+    const sz = compSize(c.type);
+    if (mouseX >= c.x && mouseX <= c.x+sz.w && mouseY >= c.y && mouseY <= c.y+sz.h) {
+      c.closed = !c.closed;
+      simulate(); draw();
+      return;
+    }
+  }
+});
+
+function pointNearSegment(px, py, a, b) {
+  // Check proximity to the routed wire (two segments)
+  const mx = (a.x + b.x) / 2;
+  return distToSeg(px,py, a.x,a.y, mx,a.y) < 8 ||
+         distToSeg(px,py, mx,a.y, mx,b.y) < 8 ||
+         distToSeg(px,py, mx,b.y, b.x,b.y) < 8;
+}
+function distToSeg(px,py, ax,ay, bx,by) {
+  const dx=bx-ax, dy=by-ay;
+  const len2=dx*dx+dy*dy;
+  if(len2===0) return Math.hypot(px-ax, py-ay);
+  let t=((px-ax)*dx+(py-ay)*dy)/len2;
+  t=Math.max(0,Math.min(1,t));
+  return Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
+}
+
+// --- Drag from sidebar ---
+let dragType = null;
+document.querySelectorAll('.palette-item').forEach(item => {
+  item.addEventListener('dragstart', e => {
+    dragType = item.dataset.type;
+    e.dataTransfer.setData('text/plain', dragType);
+  });
+});
+
+area.addEventListener('dragover', e => e.preventDefault());
+area.addEventListener('drop', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left - 30;
+  const y = e.clientY - rect.top  - 25;
+  const type = dragType || e.dataTransfer.getData('text/plain');
+  if (!type) return;
+  const comp = {
+    id: nextId++,
+    type,
+    x: Math.round(x/20)*20,
+    y: Math.round(y/20)*20,
+    voltage: {},
+    selected: false
+  };
+  if (type === 'switch') comp.closed = false;
+  if (type === 'lamp')   comp.on = false;
+  components.push(comp);
+  simulate();
+  draw();
+  dragType = null;
+});
+
+// --- Tools ---
+function setTool(t) {
+  tool = t;
+  wireStart = null;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-'+t)?.classList.add('active');
+  draw();
+}
+
+function clearAll() {
+  if (confirm('Limpar tudo?')) {
+    components = []; wires = []; wireStart = null; nextId = 1;
+    simulate(); draw();
+  }
+}
+
+simulate();
+draw();
+</script>
+</body>
+</html>
