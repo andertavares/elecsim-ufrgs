@@ -135,6 +135,9 @@ let hoveredPin = null;
 let selectedWireId = null;
 let undoStack = [];
 let dragMoved = false;
+let cameraX = 0;
+let cameraY = 0;
+let panState = null;
 
 function snapshotState() {
   return {
@@ -397,14 +400,26 @@ function getRotatedPins(comp) {
 }
 
 // --- Drawing ---
+function screenToWorld(sx, sy) {
+  return { x: sx - cameraX, y: sy - cameraY };
+}
+
 function draw() {
   ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(cameraX, cameraY);
 
   // Grid
   ctx.strokeStyle = '#1e2a45';
   ctx.lineWidth = 1;
-  for (let x = 0; x < W; x += 20) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 20) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  const gridStartX = Math.floor((-cameraX) / 20) * 20;
+  const gridStartY = Math.floor((-cameraY) / 20) * 20;
+  for (let x = gridStartX; x < W + 40; x += 20) {
+    ctx.beginPath(); ctx.moveTo(x, -cameraY - 40); ctx.lineTo(x, H + 40 - cameraY); ctx.stroke();
+  }
+  for (let y = gridStartY; y < H + 40; y += 20) {
+    ctx.beginPath(); ctx.moveTo(-cameraX - 40, y); ctx.lineTo(W + 40 - cameraX, y); ctx.stroke();
+  }
 
   // Wires
   for (const wire of wires) {
@@ -466,6 +481,8 @@ function draw() {
     ctx.arc(hoveredPin.x, hoveredPin.y, 8, 0, Math.PI*2);
     ctx.stroke();
   }
+
+  ctx.restore();
 }
 
 function drawComponent(c) {
@@ -655,8 +672,16 @@ function drawConnector(c) {
 let mouseX = 0, mouseY = 0;
 
 canvas.addEventListener('mousemove', e => {
-  mouseX = e.offsetX; mouseY = e.offsetY;
+  const world = screenToWorld(e.offsetX, e.offsetY);
+  mouseX = world.x; mouseY = world.y;
   hoveredPin = null;
+
+  if (panState) {
+    cameraX = panState.startCameraX + (e.clientX - panState.startClientX);
+    cameraY = panState.startCameraY + (e.clientY - panState.startClientY);
+    draw();
+    return;
+  }
 
   if (dragComp) {
     dragComp.x = mouseX - dragOffX;
@@ -682,7 +707,8 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mousedown', e => {
-  mouseX = e.offsetX; mouseY = e.offsetY;
+  const world = screenToWorld(e.offsetX, e.offsetY);
+  mouseX = world.x; mouseY = world.y;
 
   if (hoveredPin) {
     if (!wireStart) {
@@ -731,6 +757,13 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
 
+  panState = {
+    startClientX: e.clientX,
+    startClientY: e.clientY,
+    startCameraX: cameraX,
+    startCameraY: cameraY
+  };
+
   components.forEach(c => c.selected = false);
   selectedWireId = null;
   simulate(); draw();
@@ -738,10 +771,12 @@ canvas.addEventListener('mousedown', e => {
 
 canvas.addEventListener('mouseup', () => {
   dragComp = null;
+  panState = null;
 });
 
 canvas.addEventListener('click', e => {
-  mouseX = e.offsetX; mouseY = e.offsetY;
+  const world = screenToWorld(e.offsetX, e.offsetY);
+  mouseX = world.x; mouseY = world.y;
   if (dragMoved) {
     dragMoved = false;
     return;
@@ -872,8 +907,8 @@ const handleDrop = e => {
   e.preventDefault();
   e.stopPropagation();
   const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left - 30;
-  const y = e.clientY - rect.top  - 25;
+  const x = e.clientX - rect.left - cameraX - 30;
+  const y = e.clientY - rect.top - cameraY - 25;
   const type = dragType || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
   if (!type) return;
   pushHistory();
