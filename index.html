@@ -132,6 +132,7 @@ let dragComp = null;
 let dragOffX = 0, dragOffY = 0;
 let nextId = 1;
 let hoveredPin = null;
+let selectedWireId = null;
 let undoStack = [];
 let dragMoved = false;
 
@@ -414,8 +415,9 @@ function draw() {
     const tp = getRotatedPins(tc)[wire.toPin];
     if (!fp || !tp) continue;
     const energized = fc.voltage[wire.fromPin] === true || tc.voltage[wire.toPin] === true;
-    ctx.strokeStyle = energized ? '#ffdd00' : '#4a6fa5';
-    ctx.lineWidth = energized ? 3 : 2;
+    const isSelected = selectedWireId === wire.id;
+    ctx.strokeStyle = isSelected ? '#ff8a3d' : (energized ? '#ffdd00' : '#4a6fa5');
+    ctx.lineWidth = isSelected ? 4 : (energized ? 3 : 2);
     ctx.beginPath();
     ctx.moveTo(fp.x, fp.y);
     // Route with right angles
@@ -424,6 +426,13 @@ function draw() {
     ctx.lineTo(mx, tp.y);
     ctx.lineTo(tp.x, tp.y);
     ctx.stroke();
+
+    if (isSelected) {
+      ctx.strokeStyle = '#fff';
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   // Wire-in-progress
@@ -695,9 +704,25 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
 
+  const selectedWire = [...wires].reverse().find(w => {
+    const fc = compById(w.fromComp), tc = compById(w.toComp);
+    if (!fc || !tc) return false;
+    const fp = getRotatedPins(fc)[w.fromPin], tp = getRotatedPins(tc)[w.toPin];
+    if (!fp || !tp) return false;
+    return pointNearSegment(mouseX, mouseY, fp, tp);
+  });
+
+  if (selectedWire) {
+    selectedWireId = selectedWire.id;
+    components.forEach(c => c.selected = false);
+    simulate(); draw();
+    return;
+  }
+
   const hit = [...components].reverse().find(c => pointInComponent(c, mouseX, mouseY));
   if (hit) {
     components.forEach(c => c.selected = c.id === hit.id);
+    selectedWireId = null;
     dragComp = hit;
     dragOffX = mouseX - hit.x;
     dragOffY = mouseY - hit.y;
@@ -707,6 +732,7 @@ canvas.addEventListener('mousedown', e => {
   }
 
   components.forEach(c => c.selected = false);
+  selectedWireId = null;
   simulate(); draw();
 });
 
@@ -742,16 +768,25 @@ function rotateSelectedComponent() {
   draw();
 }
 
-function deleteSelectedComponent() {
+function deleteSelectedItem() {
   const selected = components.find(c => c.selected);
-  if (!selected) return;
+  if (selected) {
+    pushHistory();
+    wires = wires.filter(w => w.fromComp !== selected.id && w.toComp !== selected.id);
+    const index = components.findIndex(c => c.id === selected.id);
+    if (index >= 0) components.splice(index, 1);
+    simulate();
+    draw();
+    return;
+  }
 
-  pushHistory();
-  wires = wires.filter(w => w.fromComp !== selected.id && w.toComp !== selected.id);
-  const index = components.findIndex(c => c.id === selected.id);
-  if (index >= 0) components.splice(index, 1);
-  simulate();
-  draw();
+  if (selectedWireId !== null) {
+    pushHistory();
+    wires = wires.filter(w => w.id !== selectedWireId);
+    selectedWireId = null;
+    simulate();
+    draw();
+  }
 }
 
 function saveCircuit() {
@@ -888,10 +923,9 @@ window.addEventListener('keydown', e => {
   }
 
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    const selected = components.find(c => c.selected);
-    if (selected) {
+    if (components.some(c => c.selected) || selectedWireId !== null) {
       e.preventDefault();
-      deleteSelectedComponent();
+      deleteSelectedItem();
       return;
     }
   }
