@@ -88,8 +88,8 @@
   <div class="palette-item" draggable="true" data-type="lamp">
     <span class="icon">💡</span>Lâmpada
   </div>
-  <div class="palette-item" draggable="true" data-type="transistor">
-    <span class="icon">🔲</span>Transistor
+  <div class="palette-item" draggable="true" data-type="resistor">
+    <span class="icon">🧵</span>Resistência
   </div>
   <div class="palette-item" draggable="true" data-type="connector">
     <span class="icon">🔗</span>Conector
@@ -101,16 +101,15 @@
     2. Clique na ponta de um componente e depois na de outro para criar o fio<br>
     3. Use o <b>Conector</b> para derivações e junções de fios<br>
     4. Clique nos interruptores para abrir/fechar<br>
-    5. O transistor conduz quando a base recebe corrente
+    5. Use a <b>Resistência</b> para limitar corrente e evitar curto-circuito
   </div>
 </div>
 
 <div id="canvas-area">
   <canvas id="canvas"></canvas>
   <div id="toolbar">
-    <button class="tool-btn active" id="btn-select" onclick="setTool('select')">✋ Selecionar</button>
-    <button class="tool-btn" id="btn-wire" onclick="setTool('wire')">〰️ Fio</button>
     <button class="tool-btn" id="btn-delete" onclick="setTool('delete')">🗑️ Deletar</button>
+    <button class="tool-btn" id="btn-undo" onclick="undo()">↶ Desfazer</button>
     <button class="tool-btn" onclick="clearAll()">🔄 Limpar</button>
   </div>
   <div id="info">Arraste componentes da barra lateral para a área de simulação</div>
@@ -130,6 +129,38 @@ let dragComp = null;
 let dragOffX = 0, dragOffY = 0;
 let nextId = 1;
 let hoveredPin = null;
+let undoStack = [];
+let dragMoved = false;
+
+function snapshotState() {
+  return {
+    components: JSON.parse(JSON.stringify(components)),
+    wires: JSON.parse(JSON.stringify(wires)),
+    nextId,
+    tool,
+    wireStart
+  };
+}
+
+function pushHistory() {
+  undoStack.push(snapshotState());
+  if (undoStack.length > 50) undoStack.shift();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  const previous = undoStack.pop();
+  if (!previous) return;
+  components = previous.components;
+  wires = previous.wires;
+  nextId = previous.nextId;
+  tool = previous.tool || 'select';
+  wireStart = null;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-'+tool)?.classList.add('active');
+  simulate();
+  draw();
+}
 
 function resize() {
   W = area.clientWidth; H = area.clientHeight;
@@ -146,10 +177,15 @@ function getPins(comp) {
   switch(type) {
     case 'battery':
       return {
-        pos: {x: x+60, y: y+25},  // positive terminal
-        neg: {x: x,    y: y+25}   // negative terminal
+        pos: {x: x+25, y: y},
+        neg: {x: x+25, y: y+50}
       };
     case 'switch':
+      return {
+        a: {x: x,    y: y+20},
+        b: {x: x+60, y: y+20}
+      };
+    case 'resistor':
       return {
         a: {x: x,    y: y+20},
         b: {x: x+60, y: y+20}
@@ -158,13 +194,6 @@ function getPins(comp) {
       return {
         a: {x: x+25, y: y},
         b: {x: x+25, y: y+60}
-      };
-    case 'transistor':
-      // NPN-like: collector (top), emitter (bottom), base (left)
-      return {
-        collector: {x: x+30, y: y},
-        emitter:   {x: x+30, y: y+70},
-        base:      {x: x,    y: y+35}
       };
     case 'connector':
       return {
@@ -179,10 +208,10 @@ function getPins(comp) {
 
 function compSize(type) {
   switch(type) {
-    case 'battery':    return {w:70, h:50};
+    case 'battery':    return {w:50, h:70};
     case 'switch':     return {w:60, h:40};
     case 'lamp':       return {w:50, h:60};
-    case 'transistor': return {w:50, h:70};
+    case 'resistor':   return {w:60, h:40};
     case 'connector':  return {w:40, h:40};
     default:           return {w:60, h:60};
   }
@@ -193,7 +222,7 @@ function simulate() {
   // Reset voltages
   components.forEach(c => { c.voltage = {}; });
 
-  // Battery sets pos terminal to HIGH, neg to LOW
+// Battery sets positive terminal HIGH, negative terminal LOW
   components.filter(c => c.type === 'battery').forEach(bat => {
     bat.voltage.pos = true;
     bat.voltage.neg = false;
@@ -244,19 +273,28 @@ function simulate() {
             if (c.voltage.b === true && c.voltage.a !== true) { c.voltage.a = true; changed = true; }
           }
           break;
-        case 'transistor': {
-          // NPN: conducts collector→emitter when base is HIGH
-          const baseHigh = c.voltage.base === true;
-          if (baseHigh) {
-            if (c.voltage.collector === true && c.voltage.emitter !== true) { c.voltage.emitter = true; changed = true; }
-            if (c.voltage.emitter === true && c.voltage.collector !== true) { c.voltage.collector = true; changed = true; }
+        case 'resistor': {
+          // Passive component: it simply propagates the same electrical state.
+          if (c.voltage.a === true && c.voltage.b !== true) {
+            c.voltage.b = true;
+            changed = true;
+          }
+          if (c.voltage.a === false && c.voltage.b !== false) {
+            c.voltage.b = false;
+            changed = true;
+          }
+          if (c.voltage.b === true && c.voltage.a !== true) {
+            c.voltage.a = true;
+            changed = true;
+          }
+          if (c.voltage.b === false && c.voltage.a !== false) {
+            c.voltage.a = false;
+            changed = true;
           }
           break;
         }
         case 'lamp':
           // Lamp lights up when at least one terminal receives HIGH voltage.
-          // In this simplified boolean model, unconnected pins are undefined (not LOW),
-          // so a complete circuit is required for current to reach any pin.
           c.on = (c.voltage.a === true || c.voltage.b === true);
           break;
       }
@@ -271,6 +309,44 @@ function simulate() {
 }
 
 function compById(id) { return components.find(c => c.id === id); }
+
+function rotatePoint(px, py, cx, cy, angleDeg) {
+  const a = (angleDeg * Math.PI) / 180;
+  const dx = px - cx;
+  const dy = py - cy;
+  return {
+    x: cx + dx * Math.cos(a) - dy * Math.sin(a),
+    y: cy + dx * Math.sin(a) + dy * Math.cos(a)
+  };
+}
+
+function pointInComponent(comp, px, py) {
+  const { type } = comp;
+  const { w, h } = compSize(type);
+  const cx = comp.x + w / 2;
+  const cy = comp.y + h / 2;
+  const angle = -(comp.rotation || 0);
+  const dx = px - cx;
+  const dy = py - cy;
+  const a = (angle * Math.PI) / 180;
+  const rx = dx * Math.cos(a) - dy * Math.sin(a);
+  const ry = dx * Math.sin(a) + dy * Math.cos(a);
+  return Math.abs(rx) <= w / 2 && Math.abs(ry) <= h / 2;
+}
+
+function getRotatedPins(comp) {
+  const pins = getPins(comp);
+  const { w, h } = compSize(comp.type);
+  const cx = comp.x + w / 2;
+  const cy = comp.y + h / 2;
+  const angle = comp.rotation || 0;
+  const result = {};
+  for (const [name, pos] of Object.entries(pins)) {
+    const p = rotatePoint(pos.x, pos.y, cx, cy, angle);
+    result[name] = p;
+  }
+  return result;
+}
 
 // --- Drawing ---
 function draw() {
@@ -287,8 +363,8 @@ function draw() {
     const fc = compById(wire.fromComp);
     const tc = compById(wire.toComp);
     if (!fc || !tc) continue;
-    const fp = getPins(fc)[wire.fromPin];
-    const tp = getPins(tc)[wire.toPin];
+    const fp = getRotatedPins(fc)[wire.fromPin];
+    const tp = getRotatedPins(tc)[wire.toPin];
     if (!fp || !tp) continue;
     const energized = fc.voltage[wire.fromPin] === true || tc.voltage[wire.toPin] === true;
     ctx.strokeStyle = energized ? '#ffdd00' : '#4a6fa5';
@@ -304,10 +380,10 @@ function draw() {
   }
 
   // Wire-in-progress
-  if (tool === 'wire' && wireStart) {
+  if (wireStart) {
     const fc = compById(wireStart.comp);
     if (fc) {
-      const fp = getPins(fc)[wireStart.pin];
+      const fp = getRotatedPins(fc)[wireStart.pin];
       if (fp) {
         ctx.strokeStyle = '#e94560';
         ctx.lineWidth = 2;
@@ -341,12 +417,17 @@ function drawComponent(c) {
   const sz = compSize(type);
 
   ctx.save();
+  const cx = x + sz.w / 2;
+  const cy = y + sz.h / 2;
+  ctx.translate(cx, cy);
+  ctx.rotate(((c.rotation || 0) * Math.PI) / 180);
+  ctx.translate(-cx, -cy);
 
   switch(type) {
-    case 'battery': drawBattery(c); break;
-    case 'switch':  drawSwitch(c); break;
-    case 'lamp':    drawLamp(c); break;
-    case 'transistor': drawTransistor(c); break;
+    case 'battery':   drawBattery(c); break;
+    case 'switch':    drawSwitch(c); break;
+    case 'lamp':      drawLamp(c); break;
+    case 'resistor':  drawResistor(c); break;
     case 'connector': drawConnector(c); break;
   }
 
@@ -359,22 +440,21 @@ function drawComponent(c) {
     ctx.setLineDash([]);
   }
 
-  // Draw pins
   const pins = getPins(c);
   for (const [name, pos] of Object.entries(pins)) {
+    const rotated = rotatePoint(pos.x, pos.y, cx, cy, c.rotation || 0);
     const energized = c.voltage && c.voltage[name] === true;
     ctx.beginPath();
-    ctx.arc(pos.x, pos.y, 5, 0, Math.PI*2);
+    ctx.arc(rotated.x, rotated.y, 5, 0, Math.PI*2);
     ctx.fillStyle = energized ? '#ffdd00' : '#4a6fa5';
     ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Pin label
     ctx.fillStyle = '#aaa';
     ctx.font = '9px sans-serif';
-    ctx.fillText(name, pos.x + 7, pos.y + 3);
+    ctx.fillText(name, rotated.x + 7, rotated.y + 3);
   }
 
   ctx.restore();
@@ -382,35 +462,29 @@ function drawComponent(c) {
 
 function drawBattery(c) {
   const {x, y} = c;
-  // Body
   ctx.fillStyle = '#2d4a7a';
   ctx.beginPath();
-  ctx.roundRect(x+5, y+5, 50, 40, 6);
+  ctx.roundRect(x+12, y+5, 26, 60, 6);
   ctx.fill();
   ctx.strokeStyle = '#5a8fd4';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Symbol lines
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 2;
-  // negative (short)
-  ctx.beginPath(); ctx.moveTo(x+18, y+15); ctx.lineTo(x+18, y+35); ctx.stroke();
-  // positive (tall)
-  ctx.beginPath(); ctx.moveTo(x+37, y+12); ctx.lineTo(x+37, y+38); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(x+30, y+25); ctx.lineTo(x+44, y+25); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+25, y+18); ctx.lineTo(x+25, y+34); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+16, y+23); ctx.lineTo(x+34, y+23); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+25, y+42); ctx.lineTo(x+25, y+58); ctx.stroke();
 
-  // Terminals
   ctx.strokeStyle = '#aaa'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(x, y+25); ctx.lineTo(x+18, y+25); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(x+37, y+25); ctx.lineTo(x+60, y+25); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+25, y); ctx.lineTo(x+25, y+9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+25, y+61); ctx.lineTo(x+25, y+70); ctx.stroke();
 
-  // Label
   ctx.fillStyle = '#ccc'; ctx.font = 'bold 10px sans-serif';
-  ctx.fillText('BAT', x+20, y+4);
+  ctx.fillText('BAT', x+10, y+17);
   ctx.fillStyle = '#5a8fd4'; ctx.font = '9px sans-serif';
-  ctx.fillText('+', x+58, y+22);
-  ctx.fillText('−', x+2, y+22);
+  ctx.fillText('+', x+18, y+10);
+  ctx.fillText('−', x+18, y+65);
 }
 
 function drawSwitch(c) {
@@ -474,48 +548,26 @@ function drawLamp(c) {
   ctx.fillText(c.on ? 'LIGADA' : 'DESLIG.', x+1, y+58);
 }
 
-function drawTransistor(c) {
+function drawResistor(c) {
   const {x, y} = c;
-  ctx.fillStyle = '#1e3a5f';
+  ctx.strokeStyle = '#7ab4f5';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.roundRect(x+8, y+8, 34, 54, 6);
-  ctx.fill();
-  ctx.strokeStyle = '#5a8fd4'; ctx.lineWidth = 2;
+  ctx.moveTo(x, y+20);
+  ctx.lineTo(x+8, y+20);
+  ctx.lineTo(x+14, y+10);
+  ctx.lineTo(x+20, y+30);
+  ctx.lineTo(x+26, y+10);
+  ctx.lineTo(x+32, y+30);
+  ctx.lineTo(x+38, y+10);
+  ctx.lineTo(x+44, y+30);
+  ctx.lineTo(x+50, y+20);
+  ctx.lineTo(x+60, y+20);
   ctx.stroke();
 
-  // Collector (top)
-  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(x+30, y); ctx.lineTo(x+30, y+15); ctx.stroke();
-  // Emitter (bottom) with arrow
-  ctx.beginPath(); ctx.moveTo(x+30, y+55); ctx.lineTo(x+30, y+70); ctx.stroke();
-  // Base (left)
-  ctx.beginPath(); ctx.moveTo(x, y+35); ctx.lineTo(x+12, y+35); ctx.stroke();
-
-  // Internal symbol
-  ctx.strokeStyle = '#7ab4f5'; ctx.lineWidth = 2;
-  // Vertical bar
-  ctx.beginPath(); ctx.moveTo(x+18, y+20); ctx.lineTo(x+18, y+50); ctx.stroke();
-  // Collector arm
-  ctx.beginPath(); ctx.moveTo(x+18, y+28); ctx.lineTo(x+30, y+15); ctx.stroke();
-  // Emitter arm
-  ctx.beginPath(); ctx.moveTo(x+18, y+42); ctx.lineTo(x+30, y+55); ctx.stroke();
-  // Arrow on emitter
-  const ex = x+24, ey = y+48;
-  ctx.beginPath();
-  ctx.moveTo(ex+4, ey-4);
-  ctx.lineTo(ex+8, ey+2);
-  ctx.lineTo(ex, ey+2);
-  ctx.closePath();
-  ctx.fillStyle = '#7ab4f5';
-  ctx.fill();
-
-  // Conducting indicator
-  const conducting = c.voltage && c.voltage.base === true;
-  ctx.fillStyle = conducting ? '#4caf50' : '#555';
-  ctx.beginPath(); ctx.arc(x+25, y+35, 5, 0, Math.PI*2); ctx.fill();
-
-  ctx.fillStyle = '#aaa'; ctx.font = 'bold 8px sans-serif';
-  ctx.fillText('NPN', x+10, y+7);
+  ctx.fillStyle = '#aaa';
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText('R', x+26, y+8);
 }
 
 function drawConnector(c) {
@@ -553,13 +605,14 @@ canvas.addEventListener('mousemove', e => {
   if (dragComp) {
     dragComp.x = mouseX - dragOffX;
     dragComp.y = mouseY - dragOffY;
+    dragMoved = true;
     simulate();
     draw();
     return;
   }
 
   for (const c of components) {
-    const pins = getPins(c);
+    const pins = getRotatedPins(c);
     for (const [name, pos] of Object.entries(pins)) {
       const dx = pos.x - mouseX, dy = pos.y - mouseY;
       if (dx*dx + dy*dy < 100) {
@@ -575,54 +628,32 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mousedown', e => {
   mouseX = e.offsetX; mouseY = e.offsetY;
 
-  if (tool === 'select') {
-    // Check pin click (for deselection)
-    // Check component click
-    components.forEach(c => c.selected = false);
-    for (let i = components.length-1; i >= 0; i--) {
-      const c = components[i];
-      const sz = compSize(c.type);
-      if (mouseX >= c.x && mouseX <= c.x+sz.w && mouseY >= c.y && mouseY <= c.y+sz.h) {
-        c.selected = true;
-        dragComp = c;
-        dragOffX = mouseX - c.x;
-        dragOffY = mouseY - c.y;
-        break;
-      }
-    }
-    simulate(); draw();
-  }
-
-  if (tool === 'wire') {
-    if (hoveredPin) {
-      if (!wireStart) {
-        wireStart = {comp: hoveredPin.comp, pin: hoveredPin.pin};
-      } else {
-        // Complete wire
-        if (wireStart.comp !== hoveredPin.comp) {
-          wires.push({
-            id: nextId++,
-            fromComp: wireStart.comp,
-            fromPin:  wireStart.pin,
-            toComp:   hoveredPin.comp,
-            toPin:    hoveredPin.pin
-          });
-        }
-        wireStart = null;
-        simulate(); draw();
-      }
+  if (hoveredPin) {
+    if (!wireStart) {
+      wireStart = {comp: hoveredPin.comp, pin: hoveredPin.pin};
     } else {
+      if (wireStart.comp !== hoveredPin.comp) {
+        pushHistory();
+        wires.push({
+          id: nextId++,
+          fromComp: wireStart.comp,
+          fromPin:  wireStart.pin,
+          toComp:   hoveredPin.comp,
+          toPin:    hoveredPin.pin
+        });
+      }
       wireStart = null;
+      simulate(); draw();
     }
-    draw();
+    return;
   }
 
   if (tool === 'delete') {
     // Delete component under mouse
     for (let i = components.length-1; i >= 0; i--) {
       const c = components[i];
-      const sz = compSize(c.type);
-      if (mouseX >= c.x && mouseX <= c.x+sz.w && mouseY >= c.y && mouseY <= c.y+sz.h) {
+      if (pointInComponent(c, mouseX, mouseY)) {
+        pushHistory();
         wires = wires.filter(w => w.fromComp !== c.id && w.toComp !== c.id);
         components.splice(i, 1);
         simulate(); draw();
@@ -634,15 +665,30 @@ canvas.addEventListener('mousedown', e => {
       const w = wires[i];
       const fc = compById(w.fromComp), tc = compById(w.toComp);
       if (!fc || !tc) continue;
-      const fp = getPins(fc)[w.fromPin], tp = getPins(tc)[w.toPin];
+      const fp = getRotatedPins(fc)[w.fromPin], tp = getRotatedPins(tc)[w.toPin];
       if (!fp || !tp) continue;
       if (pointNearSegment(mouseX, mouseY, fp, tp)) {
+        pushHistory();
         wires.splice(i, 1);
         simulate(); draw();
         return;
       }
     }
   }
+
+  const hit = [...components].reverse().find(c => pointInComponent(c, mouseX, mouseY));
+  if (hit) {
+    components.forEach(c => c.selected = c.id === hit.id);
+    dragComp = hit;
+    dragOffX = mouseX - hit.x;
+    dragOffY = mouseY - hit.y;
+    dragMoved = false;
+    simulate(); draw();
+    return;
+  }
+
+  components.forEach(c => c.selected = false);
+  simulate(); draw();
 });
 
 canvas.addEventListener('mouseup', () => {
@@ -651,20 +697,50 @@ canvas.addEventListener('mouseup', () => {
 
 canvas.addEventListener('click', e => {
   mouseX = e.offsetX; mouseY = e.offsetY;
-  if (tool !== 'select') return;
+  if (dragMoved) {
+    dragMoved = false;
+    return;
+  }
 
-  // Toggle switch
   for (let i = components.length-1; i >= 0; i--) {
     const c = components[i];
     if (c.type !== 'switch') continue;
-    const sz = compSize(c.type);
-    if (mouseX >= c.x && mouseX <= c.x+sz.w && mouseY >= c.y && mouseY <= c.y+sz.h) {
+    if (pointInComponent(c, mouseX, mouseY)) {
+      pushHistory();
       c.closed = !c.closed;
       simulate(); draw();
       return;
     }
   }
 });
+
+canvas.addEventListener('dblclick', e => {
+  mouseX = e.offsetX; mouseY = e.offsetY;
+  const selected = components.filter(c => c.selected).find(c => pointInComponent(c, mouseX, mouseY));
+  if (!selected) {
+    const hit = [...components].reverse().find(c => pointInComponent(c, mouseX, mouseY));
+    if (hit) {
+      hit.selected = true;
+      components.forEach(c => {
+        if (c !== hit) c.selected = false;
+      });
+    }
+    return;
+  }
+  pushHistory();
+  selected.rotation = ((selected.rotation || 0) + 90) % 360;
+  simulate();
+  draw();
+});
+
+function rotateSelectedComponent() {
+  const selected = components.find(c => c.selected);
+  if (!selected) return;
+  pushHistory();
+  selected.rotation = ((selected.rotation || 0) + 90) % 360;
+  simulate();
+  draw();
+}
 
 function pointNearSegment(px, py, a, b) {
   // Check proximity to the routed wire (two segments)
@@ -705,6 +781,7 @@ const handleDrop = e => {
   const y = e.clientY - rect.top  - 25;
   const type = dragType || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
   if (!type) return;
+  pushHistory();
   const comp = {
     id: nextId++,
     type,
@@ -729,7 +806,9 @@ canvas.addEventListener('drop', handleDrop);
 // --- Tools ---
 function setTool(t) {
   tool = t;
-  wireStart = null;
+  if (t !== 'delete') {
+    wireStart = null;
+  }
   document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('btn-'+t)?.classList.add('active');
   draw();
@@ -737,10 +816,24 @@ function setTool(t) {
 
 function clearAll() {
   if (confirm('Limpar tudo?')) {
+    pushHistory();
     components = []; wires = []; wireStart = null; nextId = 1;
     simulate(); draw();
   }
 }
+
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    undo();
+    return;
+  }
+
+  if (e.key.toLowerCase() === 'r') {
+    e.preventDefault();
+    rotateSelectedComponent();
+  }
+});
 
 simulate();
 draw();
