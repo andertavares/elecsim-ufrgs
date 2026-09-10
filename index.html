@@ -108,11 +108,15 @@
 <div id="canvas-area">
   <canvas id="canvas"></canvas>
   <div id="toolbar">
+    <button class="tool-btn" id="btn-rotate" onclick="rotateSelectedComponent()">⟳ Girar</button>
+    <button class="tool-btn" id="btn-save" onclick="saveCircuit()">💾 Salvar</button>
+    <button class="tool-btn" id="btn-load" onclick="document.getElementById('circuit-file').click()">📂 Carregar</button>
     <button class="tool-btn" id="btn-delete" onclick="setTool('delete')">🗑️ Deletar</button>
     <button class="tool-btn" id="btn-undo" onclick="undo()">↶ Desfazer</button>
     <button class="tool-btn" onclick="clearAll()">🔄 Limpar</button>
   </div>
   <div id="info">Arraste componentes da barra lateral para a área de simulação</div>
+  <input id="circuit-file" type="file" accept="application/json,.json" hidden />
 </div>
 
 <script>
@@ -714,25 +718,6 @@ canvas.addEventListener('click', e => {
   }
 });
 
-canvas.addEventListener('dblclick', e => {
-  mouseX = e.offsetX; mouseY = e.offsetY;
-  const selected = components.filter(c => c.selected).find(c => pointInComponent(c, mouseX, mouseY));
-  if (!selected) {
-    const hit = [...components].reverse().find(c => pointInComponent(c, mouseX, mouseY));
-    if (hit) {
-      hit.selected = true;
-      components.forEach(c => {
-        if (c !== hit) c.selected = false;
-      });
-    }
-    return;
-  }
-  pushHistory();
-  selected.rotation = ((selected.rotation || 0) + 90) % 360;
-  simulate();
-  draw();
-});
-
 function rotateSelectedComponent() {
   const selected = components.find(c => c.selected);
   if (!selected) return;
@@ -741,6 +726,54 @@ function rotateSelectedComponent() {
   simulate();
   draw();
 }
+
+function saveCircuit() {
+  const payload = {
+    version: 1,
+    nextId,
+    components: components.map(c => ({ ...c })),
+    wires: wires.map(w => ({ ...w }))
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'circulo-eletrico.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function loadCircuit(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || !Array.isArray(data.components) || !Array.isArray(data.wires)) {
+        throw new Error('Arquivo inválido');
+      }
+      components = data.components.map(c => ({ ...c, voltage: {}, selected: false }));
+      wires = data.wires.map(w => ({ ...w }));
+      nextId = typeof data.nextId === 'number' ? data.nextId : components.length + 1;
+      wireStart = null;
+      simulate();
+      draw();
+    } catch (err) {
+      alert('Arquivo JSON inválido para o circuito.');
+    }
+  };
+  reader.readAsText(file);
+}
+
+const fileInput = document.getElementById('circuit-file');
+fileInput.addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  if (file) loadCircuit(file);
+  fileInput.value = '';
+});
 
 function pointNearSegment(px, py, a, b) {
   // Check proximity to the routed wire (two segments)
