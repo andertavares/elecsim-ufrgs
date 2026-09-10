@@ -530,6 +530,14 @@ function drawComponent(c) {
     ctx.fillText(name, rotated.x + 7, rotated.y + 3);
   }
 
+  if (c.name) {
+    ctx.fillStyle = '#eaf2ff';
+    ctx.font = 'bold 11px sans-serif';
+    const label = String(c.name).slice(0, 14);
+    const labelWidth = ctx.measureText(label).width;
+    ctx.fillText(label, x + sz.w / 2 - labelWidth / 2, y + sz.h + 14);
+  }
+
   ctx.restore();
 }
 
@@ -794,12 +802,33 @@ canvas.addEventListener('click', e => {
   }
 });
 
+canvas.addEventListener('dblclick', e => {
+  const world = screenToWorld(e.offsetX, e.offsetY);
+  const hit = [...components].reverse().find(c => pointInComponent(c, world.x, world.y));
+  if (!hit) return;
+  components.forEach(c => c.selected = c.id === hit.id);
+  const nextName = prompt('Nome do elemento:', hit.name || '');
+  if (nextName === null) return;
+  hit.name = nextName.trim();
+  simulate();
+  draw();
+});
+
 function rotateSelectedComponent() {
   const selected = components.find(c => c.selected);
   if (!selected) return;
   pushHistory();
   selected.rotation = ((selected.rotation || 0) + 90) % 360;
   simulate();
+  draw();
+}
+
+function renameSelectedComponent() {
+  const selected = components.find(c => c.selected);
+  if (!selected) return;
+  const nextName = prompt('Nome do elemento:', selected.name || '');
+  if (nextName === null) return;
+  selected.name = nextName.trim();
   draw();
 }
 
@@ -918,7 +947,8 @@ const handleDrop = e => {
     x: Math.round(x/20)*20,
     y: Math.round(y/20)*20,
     voltage: {},
-    selected: false
+    selected: false,
+    name: ''
   };
   if (type === 'switch') comp.closed = false;
   if (type === 'lamp')   comp.on = false;
@@ -968,6 +998,11 @@ window.addEventListener('keydown', e => {
   if (e.key.toLowerCase() === 'r') {
     e.preventDefault();
     rotateSelectedComponent();
+  }
+
+  if (e.key.toLowerCase() === 'n') {
+    e.preventDefault();
+    renameSelectedComponent();
   }
 });
 
