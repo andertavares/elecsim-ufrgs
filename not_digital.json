@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "nextId": 15,
+  "components": [
+    {
+      "id": 2,
+      "type": "lamp",
+      "x": 660,
+      "y": 240,
+      "voltage": {
+        "a": true,
+        "b": false
+      },
+      "selected": false,
+      "name": "",
+      "on": false
+    },
+    {
+      "id": 3,
+      "type": "battery",
+      "x": 118,
+      "y": 238,
+      "voltage": {},
+      "selected": false,
+      "name": ""
+    },
+    {
+      "id": 4,
+      "type": "switch",
+      "x": 221,
+      "y": 160,
+      "voltage": {
+        "a": false,
+        "b": false
+      },
+      "selected": false,
+      "name": "",
+      "closed": false
+    },
+    {
+      "id": 12,
+      "type": "not",
+      "x": 380,
+      "y": 160,
+      "voltage": {
+        "out": true,
+        "in": false
+      },
+      "selected": false,
+      "name": ""
+    }
+  ],
+  "wires": [
+    {
+      "id": 6,
+      "fromComp": 3,
+      "fromPin": "pos",
+      "toComp": 4,
+      "toPin": "a"
+    },
+    {
+      "id": 11,
+      "fromComp": 2,
+      "fromPin": "b",
+      "toComp": 3,
+      "toPin": "neg"
+    },
+    {
+      "id": 13,
+      "fromComp": 4,
+      "fromPin": "b",
+      "toComp": 12,
+      "toPin": "in"
+    },
+    {
+      "id": 14,
+      "fromComp": 12,
+      "fromPin": "out",
+      "toComp": 2,
+      "toPin": "a"
+    }
+  ]
+}

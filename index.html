@@ -9,14 +9,16 @@
     body { font-family: sans-serif; background: #1a1a2e; color: #eee; display: flex; height: 100vh; overflow: hidden; }
 
     #sidebar {
-      width: 160px;
+      width: 150px;
+      min-width: 150px;
       background: #16213e;
       border-right: 2px solid #0f3460;
-      padding: 12px;
+      padding: 10px 8px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       user-select: none;
+      overflow-y: auto;
     }
     #sidebar h2 { font-size: 13px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
 
@@ -24,14 +26,15 @@
       background: #0f3460;
       border: 2px solid #e94560;
       border-radius: 8px;
-      padding: 10px 6px;
+      padding: 8px 4px;
       text-align: center;
       cursor: grab;
-      font-size: 12px;
+      font-size: 11px;
+      line-height: 1.2;
       transition: background 0.15s;
     }
     .palette-item:hover { background: #e94560; }
-    .palette-item .icon { font-size: 28px; display: block; }
+    .palette-item .icon { font-size: 18px; display: block; margin-bottom: 3px; }
 
     #canvas-area {
       flex: 1;
@@ -93,6 +96,18 @@
   </div>
   <div class="palette-item" draggable="true" data-type="connector">
     <span class="icon">🔗</span>Conector
+  </div>
+  <div class="palette-item" draggable="true" data-type="and">
+    <span class="icon">AND</span>AND
+  </div>
+  <div class="palette-item" draggable="true" data-type="or">
+    <span class="icon">OR</span>OR
+  </div>
+  <div class="palette-item" draggable="true" data-type="xor">
+    <span class="icon">XOR</span>XOR
+  </div>
+  <div class="palette-item" draggable="true" data-type="not">
+    <span class="icon">NOT</span>NOT
   </div>
   <hr style="border-color:#0f3460;margin-top:6px"/>
   <div style="font-size:11px;color:#aaa;line-height:1.5">
@@ -209,6 +224,29 @@ function getPins(comp) {
         s: {x: x+20, y: y+40},
         w: {x: x,    y: y+20}
       };
+    case 'and':
+      return {
+        a: {x: x,    y: y+12},
+        b: {x: x,    y: y+28},
+        out: {x: x+60, y: y+20}
+      };
+    case 'or':
+      return {
+        a: {x: x,    y: y+12},
+        b: {x: x,    y: y+28},
+        out: {x: x+60, y: y+20}
+      };
+    case 'xor':
+      return {
+        a: {x: x,    y: y+12},
+        b: {x: x,    y: y+28},
+        out: {x: x+60, y: y+20}
+      };
+    case 'not':
+      return {
+        in: {x: x,    y: y+20},
+        out: {x: x+60, y: y+20}
+      };
     default: return {};
   }
 }
@@ -220,7 +258,21 @@ function compSize(type) {
     case 'lamp':       return {w:50, h:60};
     case 'resistor':   return {w:60, h:40};
     case 'connector':  return {w:40, h:40};
+    case 'and':
+    case 'or':
+    case 'xor':
+    case 'not':        return {w:60, h:40};
     default:           return {w:60, h:60};
+  }
+}
+
+function gateLogic(type, values) {
+  switch(type) {
+    case 'and': return Boolean(values.a) && Boolean(values.b);
+    case 'or': return Boolean(values.a) || Boolean(values.b);
+    case 'xor': return Boolean(values.a) !== Boolean(values.b);
+    case 'not': return !Boolean(values.in);
+    default: return false;
   }
 }
 
@@ -283,9 +335,12 @@ function buildElectricalGraph() {
   return { find, edges, batteries };
 }
 
-function bfsDistances(start, adjacency) {
-  const dist = new Map([[start, 0]]);
-  const queue = [start];
+function multiSourceBfs(starts, adjacency) {
+  const dist = new Map();
+  const queue = [];
+  for (const s of starts) {
+    if (!dist.has(s)) { dist.set(s, 0); queue.push(s); }
+  }
   let qi = 0;
   while (qi < queue.length) {
     const node = queue[qi++];
@@ -300,6 +355,26 @@ function bfsDistances(start, adjacency) {
     }
   }
   return dist;
+}
+
+// Groups nodes that are linked by resistive edges, so each parallel branch's
+// least-resistance path is evaluated independently of other, unrelated branches.
+function connectedComponents(adjacency) {
+  const compId = new Map();
+  let id = 0;
+  for (const node of adjacency.keys()) {
+    if (compId.has(node)) continue;
+    const stack = [node];
+    compId.set(node, id);
+    while (stack.length) {
+      const n = stack.pop();
+      for (const next of adjacency.get(n) || []) {
+        if (!compId.has(next)) { compId.set(next, id); stack.push(next); }
+      }
+    }
+    id++;
+  }
+  return compId;
 }
 
 function simulate() {
@@ -320,36 +395,71 @@ function simulate() {
     if (e.a !== e.b) addEdge(e.a, e.b);
   }
 
-  const energizedRoots = new Set();
-  const energizedEdgeComps = new Set();
+  // --- Digital layer: gates are ideal (0-resistance) sources, evaluated purely
+  // through wire/switch connectivity, independent of any downstream resistance.
+  const highRoots = new Set();
+  for (const bat of batteries) highRoots.add(bat.pos);
 
-  for (const bat of batteries) {
-    if (bat.pos === bat.neg) continue; // battery terminals directly shorted
-    const distFromPos = bfsDistances(bat.pos, adjacency);
-    const distFromNeg = bfsDistances(bat.neg, adjacency);
-    if (!distFromPos.has(bat.neg)) continue; // open circuit for this battery
-    const shortestTotal = distFromPos.get(bat.neg);
-
-    for (const [root, dPos] of distFromPos) {
-      const dNeg = distFromNeg.get(root);
-      if (dNeg !== undefined && dPos + dNeg === shortestTotal) {
-        energizedRoots.add(root);
+  const gateTypes = new Set(['and', 'or', 'xor', 'not']);
+  const gates = components.filter(c => gateTypes.has(c.type));
+  for (let pass = 0; pass < gates.length + 1; pass++) {
+    let changed = false;
+    for (const g of gates) {
+      const inputNames = g.type === 'not' ? ['in'] : ['a', 'b'];
+      const values = {};
+      for (const pin of inputNames) values[pin] = highRoots.has(find(pinKey(g.id, pin)));
+      const outRoot = find(pinKey(g.id, 'out'));
+      if (gateLogic(g.type, values) && !highRoots.has(outRoot)) {
+        highRoots.add(outRoot);
+        changed = true;
       }
     }
+    if (!changed) break;
+  }
 
-    for (const e of edges) {
-      if (e.a === e.b) continue;
-      const viaAB = distFromPos.has(e.a) && distFromNeg.has(e.b) &&
-        (distFromPos.get(e.a) + 1 + distFromNeg.get(e.b) === shortestTotal);
-      const viaBA = distFromPos.has(e.b) && distFromNeg.has(e.a) &&
-        (distFromPos.get(e.b) + 1 + distFromNeg.get(e.a) === shortestTotal);
-      if (viaAB || viaBA) energizedEdgeComps.add(e.comp.id);
+  // --- Analog layer: current from any HIGH source (battery or energized gate
+  // output) follows the least-resistance path(s) to a battery's negative terminal.
+  const distFromPos = multiSourceBfs(highRoots, adjacency);
+  const distFromNeg = multiSourceBfs(batteries.map(b => b.neg), adjacency);
+  const compId = connectedComponents(adjacency);
+
+  const localShortest = new Map();
+  for (const [node, id] of compId) {
+    const dPos = distFromPos.get(node);
+    const dNeg = distFromNeg.get(node);
+    if (dPos !== undefined && dNeg !== undefined) {
+      const total = dPos + dNeg;
+      if (!localShortest.has(id) || total < localShortest.get(id)) localShortest.set(id, total);
     }
   }
 
+  const energizedEdgeComps = new Set();
+  for (const e of edges) {
+    if (e.a === e.b) continue;
+    const id = compId.has(e.a) ? compId.get(e.a) : compId.get(e.b);
+    const shortestTotal = id !== undefined ? localShortest.get(id) : undefined;
+    if (shortestTotal === undefined) continue;
+    const viaAB = distFromPos.has(e.a) && distFromNeg.has(e.b) &&
+      (distFromPos.get(e.a) + 1 + distFromNeg.get(e.b) === shortestTotal);
+    const viaBA = distFromPos.has(e.b) && distFromNeg.has(e.a) &&
+      (distFromPos.get(e.b) + 1 + distFromNeg.get(e.a) === shortestTotal);
+    if (viaAB || viaBA) energizedEdgeComps.add(e.comp.id);
+  }
+
+  // Pins on a resistive branch light up only when actually carrying current;
+  // purely digital/connectivity pins (switches, gates, batteries) follow highRoots directly.
   for (const c of components) {
     for (const pin of Object.keys(getPins(c))) {
-      if (energizedRoots.has(find(pinKey(c.id, pin)))) c.voltage[pin] = true;
+      const root = find(pinKey(c.id, pin));
+      if (compId.has(root)) {
+        const dPos = distFromPos.get(root);
+        const dNeg = distFromNeg.get(root);
+        const shortestTotal = localShortest.get(compId.get(root));
+        c.voltage[pin] = dPos !== undefined && dNeg !== undefined &&
+          shortestTotal !== undefined && (dPos + dNeg === shortestTotal);
+      } else {
+        c.voltage[pin] = highRoots.has(root);
+      }
     }
   }
 
@@ -502,6 +612,10 @@ function drawComponent(c) {
     case 'lamp':      drawLamp(c); break;
     case 'resistor':  drawResistor(c); break;
     case 'connector': drawConnector(c); break;
+    case 'and':
+    case 'or':
+    case 'xor':
+    case 'not':      drawLogicGate(c); break;
   }
 
   // Selection highlight
@@ -674,6 +788,113 @@ function drawConnector(c) {
   ctx.fillStyle = '#ddd';
   ctx.font = 'bold 8px sans-serif';
   ctx.fillText('JUN', x+8, y+6);
+}
+
+function drawLogicGate(c) {
+  const {x, y, type} = c;
+  const energized = c.voltage && c.voltage.out === true;
+
+  ctx.fillStyle = '#243b5a';
+  ctx.strokeStyle = energized ? '#ffdd00' : '#7ab4f5';
+  ctx.lineWidth = 2;
+
+  if (type === 'and') {
+    ctx.beginPath();
+    ctx.moveTo(x, y+5);
+    ctx.lineTo(x+14, y+5);
+    ctx.quadraticCurveTo(x+45, y+5, x+45, y+20);
+    ctx.quadraticCurveTo(x+45, y+35, x+14, y+35);
+    ctx.lineTo(x, y+35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x+45, y+20);
+    ctx.lineTo(x+60, y+20);
+    ctx.stroke();
+  } else if (type === 'or') {
+    ctx.beginPath();
+    ctx.moveTo(x, y+5);
+    ctx.quadraticCurveTo(x+10, y+0, x+20, y+6);
+    ctx.quadraticCurveTo(x+48, y+20, x+20, y+34);
+    ctx.quadraticCurveTo(x+10, y+40, x, y+35);
+    ctx.quadraticCurveTo(x+18, y+20, x, y+5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x+44, y+20);
+    ctx.lineTo(x+60, y+20);
+    ctx.stroke();
+  } else if (type === 'xor') {
+    ctx.beginPath();
+    ctx.moveTo(x, y+5);
+    ctx.quadraticCurveTo(x+10, y+0, x+20, y+6);
+    ctx.quadraticCurveTo(x+48, y+20, x+20, y+34);
+    ctx.quadraticCurveTo(x+10, y+40, x, y+35);
+    ctx.quadraticCurveTo(x+18, y+20, x, y+5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x+8, y+5);
+    ctx.quadraticCurveTo(x+17, y+0, x+26, y+6);
+    ctx.quadraticCurveTo(x+18, y+20, x+26, y+34);
+    ctx.quadraticCurveTo(x+17, y+40, x+8, y+35);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x+44, y+20);
+    ctx.lineTo(x+60, y+20);
+    ctx.stroke();
+  } else if (type === 'not') {
+    ctx.beginPath();
+    ctx.moveTo(x, y+5);
+    ctx.lineTo(x+34, y+5);
+    ctx.lineTo(x+34, y+35);
+    ctx.lineTo(x, y+35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x+34, y+20);
+    ctx.lineTo(x+45, y+20);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x+49, y+20, 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x+53, y+20);
+    ctx.lineTo(x+60, y+20);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#dfe9ff';
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText(type.toUpperCase(), x+12, y+24);
+
+  const inputPins = type === 'not' ? ['in'] : ['a', 'b'];
+  for (const pin of inputPins) {
+    const p = getPins(c)[pin];
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, Math.PI*2);
+    ctx.fillStyle = c.voltage && c.voltage[pin] ? '#ffdd00' : '#5a6f9a';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+  }
+
+  const outPin = getPins(c).out;
+  ctx.beginPath();
+  ctx.arc(outPin.x, outPin.y, 4, 0, Math.PI*2);
+  ctx.fillStyle = c.voltage && c.voltage.out ? '#ffdd00' : '#5a6f9a';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
 }
 
 // --- Interaction ---
