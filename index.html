@@ -222,93 +222,137 @@ function compSize(type) {
 }
 
 // --- Simulation ---
-function simulate() {
-  // Reset voltages
-  components.forEach(c => { c.voltage = {}; });
+// Wires, connectors and closed switches have 0 resistance; lamps and resistors
+// share the same resistance value. Current is assumed to take the path(s) of
+// least total resistance, so a 0-resistance bypass (e.g. a closed switch in
+// parallel with a lamp) short-circuits the lamp and it stays off.
+function pinKey(compId, pin) { return compId + ':' + pin; }
 
-// Battery sets positive terminal HIGH, negative terminal LOW
-  components.filter(c => c.type === 'battery').forEach(bat => {
-    bat.voltage.pos = true;
-    bat.voltage.neg = false;
-  });
-
-  // Iteratively propagate (simple fixed-point, up to 20 iterations)
-  for (let iter = 0; iter < 20; iter++) {
-    let changed = false;
-
-    for (const wire of wires) {
-      const fc = compById(wire.fromComp);
-      const tc = compById(wire.toComp);
-      if (!fc || !tc) continue;
-
-      const fv = fc.voltage[wire.fromPin];
-      const tv = tc.voltage[wire.toPin];
-
-      // Propagate HIGH across wire if source is HIGH
-      if (fv === true && tv !== true) {
-        tc.voltage[wire.toPin] = true;
-        changed = true;
-      }
-      if (tv === true && fv !== true) {
-        fc.voltage[wire.fromPin] = true;
-        changed = true;
-      }
+function buildElectricalGraph() {
+  const parent = new Map();
+  function find(x) {
+    if (!parent.has(x)) parent.set(x, x);
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root);
+    let cur = x;
+    while (parent.get(cur) !== root) {
+      const next = parent.get(cur);
+      parent.set(cur, root);
+      cur = next;
     }
-
-    // Apply component logic
-    for (const c of components) {
-      switch(c.type) {
-        case 'connector': {
-          const pins = ['n', 'e', 's', 'w'];
-          const anyHigh = pins.some(pin => c.voltage[pin] === true);
-          if (anyHigh) {
-            for (const pin of pins) {
-              if (c.voltage[pin] !== true) {
-                c.voltage[pin] = true;
-                changed = true;
-              }
-            }
-          }
-          break;
-        }
-        case 'switch':
-          if (c.closed) {
-            if (c.voltage.a === true && c.voltage.b !== true) { c.voltage.b = true; changed = true; }
-            if (c.voltage.b === true && c.voltage.a !== true) { c.voltage.a = true; changed = true; }
-          }
-          break;
-        case 'resistor': {
-          // Passive component: it simply propagates the same electrical state.
-          if (c.voltage.a === true && c.voltage.b !== true) {
-            c.voltage.b = true;
-            changed = true;
-          }
-          if (c.voltage.a === false && c.voltage.b !== false) {
-            c.voltage.b = false;
-            changed = true;
-          }
-          if (c.voltage.b === true && c.voltage.a !== true) {
-            c.voltage.a = true;
-            changed = true;
-          }
-          if (c.voltage.b === false && c.voltage.a !== false) {
-            c.voltage.a = false;
-            changed = true;
-          }
-          break;
-        }
-        case 'lamp':
-          // Lamp lights up when at least one terminal receives HIGH voltage.
-          c.on = (c.voltage.a === true || c.voltage.b === true);
-          break;
-      }
-    }
-    if (!changed) break;
+    return root;
+  }
+  function union(a, b) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
   }
 
-  // Final lamp state
+  for (const c of components) {
+    for (const pin of Object.keys(getPins(c))) find(pinKey(c.id, pin));
+  }
+
+  for (const w of wires) {
+    union(pinKey(w.fromComp, w.fromPin), pinKey(w.toComp, w.toPin));
+  }
+
+  for (const c of components) {
+    if (c.type === 'connector') {
+      const pins = Object.keys(getPins(c));
+      for (let i = 1; i < pins.length; i++) union(pinKey(c.id, pins[0]), pinKey(c.id, pins[i]));
+    } else if (c.type === 'switch' && c.closed) {
+      union(pinKey(c.id, 'a'), pinKey(c.id, 'b'));
+    }
+  }
+
+  const edges = [];
+  for (const c of components) {
+    if (c.type === 'lamp' || c.type === 'resistor') {
+      edges.push({ comp: c, a: find(pinKey(c.id, 'a')), b: find(pinKey(c.id, 'b')) });
+    }
+  }
+
+  const batteries = components.filter(c => c.type === 'battery').map(bat => ({
+    comp: bat,
+    pos: find(pinKey(bat.id, 'pos')),
+    neg: find(pinKey(bat.id, 'neg'))
+  }));
+
+  return { find, edges, batteries };
+}
+
+function bfsDistances(start, adjacency) {
+  const dist = new Map([[start, 0]]);
+  const queue = [start];
+  let qi = 0;
+  while (qi < queue.length) {
+    const node = queue[qi++];
+    const d = dist.get(node);
+    const neighbors = adjacency.get(node);
+    if (!neighbors) continue;
+    for (const next of neighbors) {
+      if (!dist.has(next)) {
+        dist.set(next, d + 1);
+        queue.push(next);
+      }
+    }
+  }
+  return dist;
+}
+
+function simulate() {
+  components.forEach(c => { c.voltage = {}; });
+
+  const { find, edges, batteries } = buildElectricalGraph();
+
+  const adjacency = new Map();
+  function addEdge(a, b) {
+    if (!adjacency.has(a)) adjacency.set(a, []);
+    if (!adjacency.has(b)) adjacency.set(b, []);
+    adjacency.get(a).push(b);
+    adjacency.get(b).push(a);
+  }
+  // A self-loop (a === b) means the component's own terminals were merged by
+  // a 0-resistance bypass elsewhere in the circuit: it is short-circuited.
+  for (const e of edges) {
+    if (e.a !== e.b) addEdge(e.a, e.b);
+  }
+
+  const energizedRoots = new Set();
+  const energizedEdgeComps = new Set();
+
+  for (const bat of batteries) {
+    if (bat.pos === bat.neg) continue; // battery terminals directly shorted
+    const distFromPos = bfsDistances(bat.pos, adjacency);
+    const distFromNeg = bfsDistances(bat.neg, adjacency);
+    if (!distFromPos.has(bat.neg)) continue; // open circuit for this battery
+    const shortestTotal = distFromPos.get(bat.neg);
+
+    for (const [root, dPos] of distFromPos) {
+      const dNeg = distFromNeg.get(root);
+      if (dNeg !== undefined && dPos + dNeg === shortestTotal) {
+        energizedRoots.add(root);
+      }
+    }
+
+    for (const e of edges) {
+      if (e.a === e.b) continue;
+      const viaAB = distFromPos.has(e.a) && distFromNeg.has(e.b) &&
+        (distFromPos.get(e.a) + 1 + distFromNeg.get(e.b) === shortestTotal);
+      const viaBA = distFromPos.has(e.b) && distFromNeg.has(e.a) &&
+        (distFromPos.get(e.b) + 1 + distFromNeg.get(e.a) === shortestTotal);
+      if (viaAB || viaBA) energizedEdgeComps.add(e.comp.id);
+    }
+  }
+
+  for (const c of components) {
+    for (const pin of Object.keys(getPins(c))) {
+      if (energizedRoots.has(find(pinKey(c.id, pin)))) c.voltage[pin] = true;
+    }
+  }
+
+  // A lamp only lights up when it actually carries current on a least-resistance path.
   components.filter(c => c.type === 'lamp').forEach(c => {
-    c.on = (c.voltage.a === true || c.voltage.b === true);
+    c.on = energizedEdgeComps.has(c.id);
   });
 }
 
