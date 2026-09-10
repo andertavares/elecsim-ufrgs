@@ -111,7 +111,6 @@
     <button class="tool-btn" id="btn-rotate" onclick="rotateSelectedComponent()">⟳ Girar</button>
     <button class="tool-btn" id="btn-save" onclick="saveCircuit()">💾 Salvar</button>
     <button class="tool-btn" id="btn-load" onclick="document.getElementById('circuit-file').click()">📂 Carregar</button>
-    <button class="tool-btn" id="btn-delete" onclick="setTool('delete')">🗑️ Deletar</button>
     <button class="tool-btn" id="btn-undo" onclick="undo()">↶ Desfazer</button>
     <button class="tool-btn" onclick="clearAll()">🔄 Limpar</button>
   </div>
@@ -696,34 +695,6 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
 
-  if (tool === 'delete') {
-    // Delete component under mouse
-    for (let i = components.length-1; i >= 0; i--) {
-      const c = components[i];
-      if (pointInComponent(c, mouseX, mouseY)) {
-        pushHistory();
-        wires = wires.filter(w => w.fromComp !== c.id && w.toComp !== c.id);
-        components.splice(i, 1);
-        simulate(); draw();
-        return;
-      }
-    }
-    // Delete wire under mouse
-    for (let i = wires.length-1; i >= 0; i--) {
-      const w = wires[i];
-      const fc = compById(w.fromComp), tc = compById(w.toComp);
-      if (!fc || !tc) continue;
-      const fp = getRotatedPins(fc)[w.fromPin], tp = getRotatedPins(tc)[w.toPin];
-      if (!fp || !tp) continue;
-      if (pointNearSegment(mouseX, mouseY, fp, tp)) {
-        pushHistory();
-        wires.splice(i, 1);
-        simulate(); draw();
-        return;
-      }
-    }
-  }
-
   const hit = [...components].reverse().find(c => pointInComponent(c, mouseX, mouseY));
   if (hit) {
     components.forEach(c => c.selected = c.id === hit.id);
@@ -767,6 +738,18 @@ function rotateSelectedComponent() {
   if (!selected) return;
   pushHistory();
   selected.rotation = ((selected.rotation || 0) + 90) % 360;
+  simulate();
+  draw();
+}
+
+function deleteSelectedComponent() {
+  const selected = components.find(c => c.selected);
+  if (!selected) return;
+
+  pushHistory();
+  wires = wires.filter(w => w.fromComp !== selected.id && w.toComp !== selected.id);
+  const index = components.findIndex(c => c.id === selected.id);
+  if (index >= 0) components.splice(index, 1);
   simulate();
   draw();
 }
@@ -883,9 +866,7 @@ canvas.addEventListener('drop', handleDrop);
 // --- Tools ---
 function setTool(t) {
   tool = t;
-  if (t !== 'delete') {
-    wireStart = null;
-  }
+  wireStart = null;
   document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('btn-'+t)?.classList.add('active');
   draw();
@@ -904,6 +885,15 @@ window.addEventListener('keydown', e => {
     e.preventDefault();
     undo();
     return;
+  }
+
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    const selected = components.find(c => c.selected);
+    if (selected) {
+      e.preventDefault();
+      deleteSelectedComponent();
+      return;
+    }
   }
 
   if (e.key.toLowerCase() === 'r') {
