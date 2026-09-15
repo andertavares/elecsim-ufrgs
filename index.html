@@ -244,7 +244,7 @@ let dragMoved = false;
 let cameraX = 0;
 let cameraY = 0;
 let panState = null;
-const DEFAULT_OSCILLATOR_PERIOD = 800;
+const DEFAULT_OSCILLATOR_PERIOD = 500;
 
 function snapshotState() {
   return {
@@ -533,8 +533,7 @@ function simulate() {
       if (c.state) highRoots.add(find(pinKey(c.id, 'q')));
       else highRoots.add(find(pinKey(c.id, 'qbar')));
     } else if (c.type === 'oscillator') {
-      const halfPeriod = Math.floor(performance.now() / 400) % 2;
-      c.state = halfPeriod === 0;
+      // c.state is toggled solely by the setTimeout loop in restartOscillator, honoring c.period
       if (c.state) highRoots.add(find(pinKey(c.id, 'out')));
     }
   }
