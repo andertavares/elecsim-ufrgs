@@ -799,10 +799,10 @@ function drawComponent(c) {
 
   const pins = getPins(c);
   for (const [name, pos] of Object.entries(pins)) {
-    const rotated = rotatePoint(pos.x, pos.y, cx, cy, c.rotation || 0);
+    // ctx is already rotated around (cx, cy), so use the unrotated pin position here
     const energized = c.voltage && c.voltage[name] === true;
     ctx.beginPath();
-    ctx.arc(rotated.x, rotated.y, 5, 0, Math.PI*2);
+    ctx.arc(pos.x, pos.y, 5, 0, Math.PI*2);
     ctx.fillStyle = energized ? '#ffdd00' : '#4a6fa5';
     ctx.fill();
     ctx.strokeStyle = '#fff';
@@ -811,7 +811,7 @@ function drawComponent(c) {
 
     ctx.fillStyle = '#aaa';
     ctx.font = '9px sans-serif';
-    ctx.fillText(name, rotated.x + 7, rotated.y + 3);
+    ctx.fillText(name, pos.x + 7, pos.y + 3);
   }
 
   if (c.name) {
