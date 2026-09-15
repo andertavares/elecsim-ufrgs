@@ -999,25 +999,33 @@ function drawLogicGate(c) {
     ctx.lineTo(bubble ? x+48 : x+60, y+20);
     ctx.stroke();
   } else if (type === 'xor' || type === 'xnor') {
+    const off = 6; // gap between the extra curved line and the gate body, an OR-shield offset to the right
+    const bodyX = x + off;
+
+    // Extra curved line behind the body: the mark that distinguishes XOR/XNOR from OR/NOR
     ctx.beginPath();
     ctx.moveTo(x, y+5);
-    ctx.quadraticCurveTo(x+8, y+0, x+18, y+6);
-    ctx.quadraticCurveTo(x+43, y+20, x+18, y+34);
-    ctx.quadraticCurveTo(x+8, y+40, x, y+35);
-    ctx.quadraticCurveTo(x+18, y+20, x, y+5);
+    ctx.quadraticCurveTo(x+16, y+20, x, y+35);
+    ctx.stroke();
+
+    // Input stubs connecting the pins to the offset body
+    ctx.beginPath();
+    ctx.moveTo(x, y+12); ctx.lineTo(bodyX, y+12);
+    ctx.moveTo(x, y+28); ctx.lineTo(bodyX, y+28);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(bodyX, y+5);
+    ctx.quadraticCurveTo(bodyX+8, y+0, bodyX+16, y+6);
+    ctx.quadraticCurveTo(bodyX+40, y+20, bodyX+16, y+34);
+    ctx.quadraticCurveTo(bodyX+8, y+40, bodyX, y+35);
+    ctx.quadraticCurveTo(bodyX+16, y+20, bodyX, y+5);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(x+7, y+8);
-    ctx.quadraticCurveTo(x+18, y+0, x+28, y+7);
-    ctx.quadraticCurveTo(x+23, y+20, x+28, y+33);
-    ctx.quadraticCurveTo(x+18, y+40, x+7, y+32);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(x+44, y+20);
+    ctx.moveTo(bodyX+40, y+20);
     ctx.lineTo(bubble ? x+48 : x+60, y+20);
     ctx.stroke();
   } else if (type === 'not') {
