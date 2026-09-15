@@ -19,8 +19,63 @@
       gap: 8px;
       user-select: none;
       overflow-y: auto;
+      scrollbar-width: thin;
+    }
+
+    .sidebar-help {
+      max-height: 110px;
+      overflow-y: auto;
+      padding-right: 4px;
+      font-size: 11px;
+      color: #aaa;
+      line-height: 1.5;
+      scrollbar-width: thin;
     }
     #sidebar h2 { font-size: 13px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+
+    .component-section {
+      background: rgba(15, 52, 96, 0.45);
+      border: 1px solid rgba(233, 69, 96, 0.45);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      overflow: hidden;
+      max-height: 42vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .component-section[data-section="advanced"] {
+      max-height: 76vh;
+    }
+
+    .component-section-header {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: #eee;
+      font: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 8px 6px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .component-section-header:hover { background: rgba(233, 69, 96, 0.12); }
+    .section-toggle { font-size: 14px; color: #ffb4bf; }
+    .section-content {
+      padding: 0 6px 8px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      flex: 1;
+    }
+    .component-section.collapsed .section-content { display: none; }
 
     .palette-item {
       background: #0f3460;
@@ -32,6 +87,7 @@
       font-size: 11px;
       line-height: 1.2;
       transition: background 0.15s;
+      margin-top: 6px;
     }
     .palette-item:hover { background: #e94560; }
     .palette-item .icon { font-size: 18px; display: block; margin-bottom: 3px; }
@@ -81,36 +137,71 @@
 </head>
 <body>
 <div id="sidebar">
-  <h2>Componentes</h2>
-  <div class="palette-item" draggable="true" data-type="battery">
-    <span class="icon">🔋</span>Bateria
+  <div class="component-section" data-section="basic">
+    <button class="component-section-header" type="button" aria-expanded="true">
+      <span>Componentes básicos</span>
+      <span class="section-toggle">▾</span>
+    </button>
+    <div class="section-content">
+      <div class="palette-item" draggable="true" data-type="battery">
+        <span class="icon">🔋</span>Bateria
+      </div>
+      <div class="palette-item" draggable="true" data-type="switch">
+        <span class="icon">🔘</span>Interruptor
+      </div>
+      <div class="palette-item" draggable="true" data-type="lamp">
+        <span class="icon">💡</span>Lâmpada
+      </div>
+      <div class="palette-item" draggable="true" data-type="resistor">
+        <span class="icon">🧵</span>Resistência
+      </div>
+      <div class="palette-item" draggable="true" data-type="connector">
+        <span class="icon">🔗</span>Conector
+      </div>
+      <div class="palette-item" draggable="true" data-type="and">
+        <span class="icon">AND</span>AND
+      </div>
+      <div class="palette-item" draggable="true" data-type="or">
+        <span class="icon">OR</span>OR
+      </div>
+      <div class="palette-item" draggable="true" data-type="xor">
+        <span class="icon">XOR</span>XOR
+      </div>
+      <div class="palette-item" draggable="true" data-type="not">
+        <span class="icon">NOT</span>NOT
+      </div>
+      <div class="palette-item" draggable="true" data-type="nand">
+        <span class="icon">NAND</span>NAND
+      </div>
+      <div class="palette-item" draggable="true" data-type="nor">
+        <span class="icon">NOR</span>NOR
+      </div>
+      <div class="palette-item" draggable="true" data-type="xnor">
+        <span class="icon">XNOR</span>XNOR
+      </div>
+    </div>
   </div>
-  <div class="palette-item" draggable="true" data-type="switch">
-    <span class="icon">🔘</span>Interruptor
+
+  <div class="component-section" data-section="advanced">
+    <button class="component-section-header" type="button" aria-expanded="true">
+      <span>Componentes avançados</span>
+      <span class="section-toggle">▾</span>
+    </button>
+    <div class="section-content">
+      <div class="palette-item" draggable="true" data-type="sr-latch">
+        <span class="icon">SR</span>Latch SR
+      </div>
+      <div class="palette-item" draggable="true" data-type="d-flipflop">
+        <span class="icon">D</span>Flip-Flop D
+      </div>
+      <div class="palette-item" draggable="true" data-type="oscillator">
+        <span class="icon">⏱</span>Oscilador
+      </div>
+    </div>
   </div>
-  <div class="palette-item" draggable="true" data-type="lamp">
-    <span class="icon">💡</span>Lâmpada
-  </div>
-  <div class="palette-item" draggable="true" data-type="resistor">
-    <span class="icon">🧵</span>Resistência
-  </div>
-  <div class="palette-item" draggable="true" data-type="connector">
-    <span class="icon">🔗</span>Conector
-  </div>
-  <div class="palette-item" draggable="true" data-type="and">
-    <span class="icon">AND</span>AND
-  </div>
-  <div class="palette-item" draggable="true" data-type="or">
-    <span class="icon">OR</span>OR
-  </div>
-  <div class="palette-item" draggable="true" data-type="xor">
-    <span class="icon">XOR</span>XOR
-  </div>
-  <div class="palette-item" draggable="true" data-type="not">
-    <span class="icon">NOT</span>NOT
-  </div>
+
   <hr style="border-color:#0f3460;margin-top:6px"/>
-  <div style="font-size:11px;color:#aaa;line-height:1.5">
+  <div class="sidebar-help">
     <b>Como usar:</b><br>
     1. Arraste um componente<br>
     2. Clique na ponta de um componente e depois na de outro para criar o fio<br>
@@ -153,6 +244,7 @@ let dragMoved = false;
 let cameraX = 0;
 let cameraY = 0;
 let panState = null;
+const DEFAULT_OSCILLATOR_PERIOD = 800;
 
 function snapshotState() {
   return {
@@ -225,18 +317,11 @@ function getPins(comp) {
         w: {x: x,    y: y+20}
       };
     case 'and':
-      return {
-        a: {x: x,    y: y+12},
-        b: {x: x,    y: y+28},
-        out: {x: x+60, y: y+20}
-      };
+    case 'nand':
     case 'or':
-      return {
-        a: {x: x,    y: y+12},
-        b: {x: x,    y: y+28},
-        out: {x: x+60, y: y+20}
-      };
+    case 'nor':
     case 'xor':
+    case 'xnor':
       return {
         a: {x: x,    y: y+12},
         b: {x: x,    y: y+28},
@@ -246,6 +331,25 @@ function getPins(comp) {
       return {
         in: {x: x,    y: y+20},
         out: {x: x+60, y: y+20}
+      };
+    case 'sr-latch':
+      return {
+        s: {x: x,    y: y+12},
+        r: {x: x,    y: y+28},
+        q: {x: x+60, y: y+12},
+        qbar: {x: x+60, y: y+28}
+      };
+    case 'd-flipflop':
+      return {
+        d: {x: x,    y: y+12},
+        clk: {x: x,    y: y+28},
+        q: {x: x+60, y: y+12},
+        qbar: {x: x+60, y: y+28}
+      };
+    case 'oscillator':
+      return {
+        out: {x: x+60, y: y+20},
+        gnd: {x: x,    y: y+20}
       };
     default: return {};
   }
@@ -259,9 +363,15 @@ function compSize(type) {
     case 'resistor':   return {w:60, h:40};
     case 'connector':  return {w:40, h:40};
     case 'and':
+    case 'nand':
     case 'or':
+    case 'nor':
     case 'xor':
-    case 'not':        return {w:60, h:40};
+    case 'xnor':
+    case 'not':
+    case 'sr-latch':
+    case 'd-flipflop':
+    case 'oscillator': return {w:60, h:40};
     default:           return {w:60, h:60};
   }
 }
@@ -269,8 +379,11 @@ function compSize(type) {
 function gateLogic(type, values) {
   switch(type) {
     case 'and': return Boolean(values.a) && Boolean(values.b);
+    case 'nand': return !(Boolean(values.a) && Boolean(values.b));
     case 'or': return Boolean(values.a) || Boolean(values.b);
+    case 'nor': return !(Boolean(values.a) || Boolean(values.b));
     case 'xor': return Boolean(values.a) !== Boolean(values.b);
+    case 'xnor': return Boolean(values.a) === Boolean(values.b);
     case 'not': return !Boolean(values.in);
     default: return false;
   }
@@ -400,7 +513,33 @@ function simulate() {
   const highRoots = new Set();
   for (const bat of batteries) highRoots.add(bat.pos);
 
-  const gateTypes = new Set(['and', 'or', 'xor', 'not']);
+  for (const c of components) {
+    if (c.type === 'sr-latch') {
+      const sHigh = highRoots.has(find(pinKey(c.id, 's')));
+      const rHigh = highRoots.has(find(pinKey(c.id, 'r')));
+      let nextState = Boolean(c.state);
+      if (sHigh && !rHigh) nextState = true;
+      else if (rHigh && !sHigh) nextState = false;
+      else if (sHigh && rHigh) nextState = false;
+      c.state = nextState;
+      if (nextState) highRoots.add(find(pinKey(c.id, 'q')));
+      else highRoots.add(find(pinKey(c.id, 'qbar')));
+    } else if (c.type === 'd-flipflop') {
+      const dHigh = highRoots.has(find(pinKey(c.id, 'd')));
+      const clkHigh = highRoots.has(find(pinKey(c.id, 'clk')));
+      const prevClk = Boolean(c.prevClk);
+      if (clkHigh && !prevClk) c.state = Boolean(dHigh);
+      c.prevClk = clkHigh;
+      if (c.state) highRoots.add(find(pinKey(c.id, 'q')));
+      else highRoots.add(find(pinKey(c.id, 'qbar')));
+    } else if (c.type === 'oscillator') {
+      const halfPeriod = Math.floor(performance.now() / 400) % 2;
+      c.state = halfPeriod === 0;
+      if (c.state) highRoots.add(find(pinKey(c.id, 'out')));
+    }
+  }
+
+  const gateTypes = new Set(['and', 'or', 'xor', 'not', 'nand', 'nor', 'xnor']);
   const gates = components.filter(c => gateTypes.has(c.type));
   for (let pass = 0; pass < gates.length + 1; pass++) {
     let changed = false;
@@ -514,6 +653,31 @@ function screenToWorld(sx, sy) {
   return { x: sx - cameraX, y: sy - cameraY };
 }
 
+function restartOscillator(c) {
+  if (!c || c.type !== 'oscillator') return;
+  if (c._oscTimer) {
+    clearTimeout(c._oscTimer);
+    c._oscTimer = null;
+  }
+  const period = Number.isFinite(c.period) && c.period > 0 ? c.period : DEFAULT_OSCILLATOR_PERIOD;
+  c._oscTimer = setTimeout(() => {
+    const idx = components.findIndex(item => item.id === c.id);
+    if (idx === -1) return;
+    components[idx].state = !Boolean(components[idx].state);
+    simulate();
+    draw();
+    restartOscillator(components[idx]);
+  }, period);
+}
+
+function syncOscillatorTimers() {
+  for (const c of components) {
+    if (c.type === 'oscillator') {
+      restartOscillator(c);
+    }
+  }
+}
+
 function draw() {
   ctx.clearRect(0, 0, W, H);
   ctx.save();
@@ -607,15 +771,21 @@ function drawComponent(c) {
   ctx.translate(-cx, -cy);
 
   switch(type) {
-    case 'battery':   drawBattery(c); break;
-    case 'switch':    drawSwitch(c); break;
-    case 'lamp':      drawLamp(c); break;
-    case 'resistor':  drawResistor(c); break;
-    case 'connector': drawConnector(c); break;
+    case 'battery':    drawBattery(c); break;
+    case 'switch':     drawSwitch(c); break;
+    case 'lamp':       drawLamp(c); break;
+    case 'resistor':   drawResistor(c); break;
+    case 'connector':  drawConnector(c); break;
     case 'and':
+    case 'nand':
     case 'or':
+    case 'nor':
     case 'xor':
-    case 'not':      drawLogicGate(c); break;
+    case 'xnor':
+    case 'not':       drawLogicGate(c); break;
+    case 'sr-latch':   drawSRLatch(c); break;
+    case 'd-flipflop': drawDFlipFlop(c); break;
+    case 'oscillator': drawOscillator(c); break;
   }
 
   // Selection highlight
@@ -798,7 +968,9 @@ function drawLogicGate(c) {
   ctx.strokeStyle = energized ? '#ffdd00' : '#7ab4f5';
   ctx.lineWidth = 2;
 
-  if (type === 'and') {
+  const bubble = type === 'nand' || type === 'nor' || type === 'xnor';
+
+  if (type === 'and' || type === 'nand') {
     ctx.beginPath();
     ctx.moveTo(x, y+5);
     ctx.lineTo(x+14, y+5);
@@ -810,9 +982,9 @@ function drawLogicGate(c) {
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(x+45, y+20);
-    ctx.lineTo(x+60, y+20);
+    ctx.lineTo(bubble ? x+48 : x+60, y+20);
     ctx.stroke();
-  } else if (type === 'or') {
+  } else if (type === 'or' || type === 'nor') {
     ctx.beginPath();
     ctx.moveTo(x, y+5);
     ctx.quadraticCurveTo(x+10, y+0, x+20, y+6);
@@ -824,29 +996,29 @@ function drawLogicGate(c) {
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(x+44, y+20);
-    ctx.lineTo(x+60, y+20);
+    ctx.lineTo(bubble ? x+48 : x+60, y+20);
     ctx.stroke();
-  } else if (type === 'xor') {
+  } else if (type === 'xor' || type === 'xnor') {
     ctx.beginPath();
     ctx.moveTo(x, y+5);
-    ctx.quadraticCurveTo(x+10, y+0, x+20, y+6);
-    ctx.quadraticCurveTo(x+48, y+20, x+20, y+34);
-    ctx.quadraticCurveTo(x+10, y+40, x, y+35);
+    ctx.quadraticCurveTo(x+8, y+0, x+18, y+6);
+    ctx.quadraticCurveTo(x+43, y+20, x+18, y+34);
+    ctx.quadraticCurveTo(x+8, y+40, x, y+35);
     ctx.quadraticCurveTo(x+18, y+20, x, y+5);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(x+8, y+5);
-    ctx.quadraticCurveTo(x+17, y+0, x+26, y+6);
-    ctx.quadraticCurveTo(x+18, y+20, x+26, y+34);
-    ctx.quadraticCurveTo(x+17, y+40, x+8, y+35);
+    ctx.moveTo(x+7, y+8);
+    ctx.quadraticCurveTo(x+18, y+0, x+28, y+7);
+    ctx.quadraticCurveTo(x+23, y+20, x+28, y+33);
+    ctx.quadraticCurveTo(x+18, y+40, x+7, y+32);
     ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(x+44, y+20);
-    ctx.lineTo(x+60, y+20);
+    ctx.lineTo(bubble ? x+48 : x+60, y+20);
     ctx.stroke();
   } else if (type === 'not') {
     ctx.beginPath();
@@ -873,6 +1045,16 @@ function drawLogicGate(c) {
     ctx.stroke();
   }
 
+  if (bubble) {
+    ctx.beginPath();
+    ctx.arc(x+52, y+20, 4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x+56, y+20);
+    ctx.lineTo(x+60, y+20);
+    ctx.stroke();
+  }
+
   ctx.fillStyle = '#dfe9ff';
   ctx.font = 'bold 9px sans-serif';
   ctx.fillText(type.toUpperCase(), x+12, y+24);
@@ -895,6 +1077,60 @@ function drawLogicGate(c) {
   ctx.fill();
   ctx.strokeStyle = '#fff';
   ctx.stroke();
+}
+
+function drawSRLatch(c) {
+  const {x, y} = c;
+  ctx.fillStyle = '#243b5a';
+  ctx.strokeStyle = c.state ? '#ffdd00' : '#7ab4f5';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x, y+5, 60, 30, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#dfe9ff';
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText('SR', x+22, y+24);
+}
+
+function drawDFlipFlop(c) {
+  const {x, y} = c;
+  ctx.fillStyle = '#243b5a';
+  ctx.strokeStyle = c.state ? '#ffdd00' : '#7ab4f5';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x, y+5, 60, 30, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#dfe9ff';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('D-FF', x+16, y+24);
+}
+
+function drawOscillator(c) {
+  const {x, y} = c;
+  ctx.fillStyle = '#243b5a';
+  ctx.strokeStyle = c.state ? '#ffdd00' : '#7ab4f5';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x, y+5, 60, 30, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.strokeStyle = c.state ? '#ffdd00' : '#7ab4f5';
+  ctx.beginPath();
+  ctx.moveTo(x+8, y+20);
+  for (let px = 8; px <= 52; px += 4) {
+    const waveY = px % 8 === 0 ? y + 12 : y + 28;
+    ctx.lineTo(x + px, waveY);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = '#dfe9ff';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('OSC', x+17, y+24);
 }
 
 // --- Interaction ---
@@ -1028,11 +1264,22 @@ canvas.addEventListener('dblclick', e => {
   const hit = [...components].reverse().find(c => pointInComponent(c, world.x, world.y));
   if (!hit) return;
   components.forEach(c => c.selected = c.id === hit.id);
-  const nextName = prompt('Nome do elemento:', hit.name || '');
-  if (nextName === null) return;
-  hit.name = nextName.trim();
-  simulate();
-  draw();
+
+  if (hit.type === 'oscillator') {
+    const rawValue = prompt('Tempo de alternância do oscilador (ms):', String(hit.period || DEFAULT_OSCILLATOR_PERIOD));
+    if (rawValue === null) return;
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      alert('Informe um valor maior que zero em milissegundos.');
+      return;
+    }
+    hit.period = parsed;
+    restartOscillator(hit);
+    simulate();
+    draw();
+    return;
+  }
+
 });
 
 function rotateSelectedComponent() {
@@ -1173,7 +1420,12 @@ const handleDrop = e => {
   };
   if (type === 'switch') comp.closed = false;
   if (type === 'lamp')   comp.on = false;
+  if (type === 'oscillator') {
+    comp.state = false;
+    comp.period = DEFAULT_OSCILLATOR_PERIOD;
+  }
   components.push(comp);
+  if (type === 'oscillator') restartOscillator(comp);
   simulate();
   draw();
   dragType = null;
@@ -1196,10 +1448,23 @@ function setTool(t) {
 function clearAll() {
   if (confirm('Limpar tudo?')) {
     pushHistory();
+    for (const c of components) {
+      if (c._oscTimer) clearTimeout(c._oscTimer);
+    }
     components = []; wires = []; wireStart = null; nextId = 1;
     simulate(); draw();
   }
 }
+
+document.querySelectorAll('.component-section-header').forEach(button => {
+  button.addEventListener('click', () => {
+    const section = button.closest('.component-section');
+    const collapsed = section.classList.toggle('collapsed');
+    button.setAttribute('aria-expanded', String(!collapsed));
+    const toggle = button.querySelector('.section-toggle');
+    if (toggle) toggle.textContent = collapsed ? '▸' : '▾';
+  });
+});
 
 window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -1227,6 +1492,7 @@ window.addEventListener('keydown', e => {
   }
 });
 
+syncOscillatorTimers();
 simulate();
 draw();
 </script>
