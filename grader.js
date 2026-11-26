@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Automatic grader: checks whether a circuit (JSON) implements a truth table (CSV/TSV).
 // Usage: node grader.js <circuit.json> <truth-table.csv|tsv> [--quiet]
+//        node grader.js <submissions-dir> <truth-table.csv|tsv> [--out grades.csv] [--max 10]
+// Batch mode grades every file in the directory (student name = file name without its
+// extension, whatever the extension is) and writes a CSV: aluno,nota,comentario.
 // Exit codes: 0 = correct, 1 = incorrect, 2 = usage/input error.
 //
 // Inputs are the circuit's switches, outputs are its lamps. Columns are matched to
@@ -9,6 +12,7 @@
 // Separate circuits in one file are evaluated independently; if more than one
 // is found, the result is flagged. The submission passes if any circuit matches.
 const fs = require('fs');
+const path = require('path');
 const { simulate } = require('./engine.js');
 
 const MAX_PERMUTATION_VARS = 8;
@@ -138,27 +142,10 @@ function check(c, table) {
   return { ok: false, best, c, reason: `${best.wrong.length} linha(s) da tabela divergem` };
 }
 
-function main() {
-  const args = process.argv.slice(2).filter(a => a !== '--quiet');
-  const quiet = args.length !== process.argv.length - 2;
-  if (args.length !== 2) {
-    console.error('Uso: node grader.js <circuito.json> <tabela.csv|tsv> [--quiet]');
-    return 2;
-  }
-  let circuit, parsed;
-  try {
-    circuit = JSON.parse(fs.readFileSync(args[0], 'utf8'));
-    parsed = parseTable(fs.readFileSync(args[1], 'utf8'));
-  } catch (e) {
-    console.error('Erro: ' + e.message);
-    return 2;
-  }
-  if (!Array.isArray(circuit.components)) { console.error('Erro: JSON de circuito inválido.'); return 2; }
-
+// Grades one parsed circuit against a parsed table.
+// Returns { circuits, results, passed } where results has one entry per independent circuit.
+function grade(circuit, parsed) {
   const circuits = findCircuits(circuit);
-  const log = quiet ? () => {} : console.log;
-  if (!circuits.length) { console.log('INCORRETO: nenhum circuito (interruptor + lâmpada) encontrado.'); return 1; }
-
   const nCols = parsed.header.length;
   const results = circuits.map((c, idx) => {
     const nOut = c.outputs.length, nIn = nCols - nOut;
@@ -171,20 +158,29 @@ function main() {
     const all = parsed.header.map((_, j) => j);
     const named = all.filter(j => lampNames.has(norm(parsed.header[j])));
     const outIdx = lampNames.size === nOut && named.length === nOut ? named : all.slice(nIn);
-    const inIdx = parsed.header.map((_, j) => j).filter(j => !outIdx.includes(j));
+    const inIdx = all.filter(j => !outIdx.includes(j));
     const table = {
       inCols: inIdx.map(j => parsed.header[j]),
       outCols: outIdx.map(j => parsed.header[j]),
       rows: parsed.rows.map(r => ({ in: inIdx.map(j => r[j]), out: outIdx.map(j => r[j]) }))
     };
     try {
-      const r = check(c, table);
-      return { idx, table, ...r };
+      return { idx, table, ...check(c, table) };
     } catch (e) { return { idx, ok: false, reason: e.message }; }
   });
+  return { circuits, results, passed: results.some(r => r.ok) };
+}
 
-  const passed = results.filter(r => r.ok);
-  results.forEach(r => {
+function loadCircuit(file) {
+  const circuit = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!circuit || !Array.isArray(circuit.components)) throw new Error('JSON de circuito inválido.');
+  return circuit;
+}
+
+function printSingle(g, quiet) {
+  const log = quiet ? () => {} : console.log;
+  if (!g.circuits.length) { console.log('INCORRETO: nenhum circuito (interruptor + lâmpada) encontrado.'); return; }
+  g.results.forEach(r => {
     if (r.ok) {
       log(`Circuito ${r.idx + 1}: CORRETO`);
       const map = (els, a, cols) => els.map((e, i) => `${e.name || '(sem nome)'}→${cols[a[i]]}`).join(', ');
@@ -192,19 +188,82 @@ function main() {
       log(`  saídas:   ${map(r.c.outputs, r.oa, r.table.outCols)}`);
     } else {
       log(`Circuito ${r.idx + 1}: INCORRETO (${r.reason})`);
-      if (r.best) {
-        const b = r.best;
-        b.wrong.slice(0, 5).forEach(w => {
-          log(`  entradas=${w.row.in.map(Number).join('')} esperado=${w.row.out.map(Number).join('')} obtido=${w.got.map(Number).join('')} (colunas permutadas conforme melhor correspondência)`);
-        });
-      }
+      (r.best ? r.best.wrong.slice(0, 5) : []).forEach(w => {
+        log(`  entradas=${w.row.in.map(Number).join('')} esperado=${w.row.out.map(Number).join('')} obtido=${w.got.map(Number).join('')} (colunas permutadas conforme melhor correspondência)`);
+      });
     }
   });
-  if (circuits.length > 1) {
-    console.log(`AVISO: ${circuits.length} circuitos independentes encontrados no envio.`);
+  if (g.circuits.length > 1) console.log(`AVISO: ${g.circuits.length} circuitos independentes encontrados no envio.`);
+  console.log(g.passed ? 'RESULTADO: CORRETO' : 'RESULTADO: INCORRETO');
+}
+
+function csvField(v) {
+  const s = String(v);
+  return /[",\n\r;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// "Nome_do_Aluno.ext" -> "Nome do Aluno" (only the last extension is dropped,
+// underscores become spaces).
+function studentName(file) {
+  const i = file.lastIndexOf('.');
+  const base = i > 0 ? file.slice(0, i) : file;
+  return base.replace(/_+/g, ' ').trim();
+}
+
+function comment(g, error) {
+  if (error) return `Erro ao processar o arquivo: ${error}`;
+  const parts = [];
+  if (!g.circuits.length) parts.push('Incorreto: nenhum circuito (interruptor + lâmpada) encontrado');
+  else if (g.passed) {
+    const k = g.results.findIndex(r => r.ok) + 1;
+    parts.push(g.circuits.length > 1 ? `Correto (circuito ${k})` : 'Correto');
+  } else {
+    parts.push('Incorreto: ' + g.results.map(r => (g.circuits.length > 1 ? `circuito ${r.idx + 1}: ` : '') + r.reason).join(' | '));
   }
-  console.log(passed.length ? 'RESULTADO: CORRETO' : 'RESULTADO: INCORRETO');
-  return passed.length ? 0 : 1;
+  if (g.circuits.length > 1) parts.push(`Atenção: ${g.circuits.length} circuitos implementados no mesmo arquivo`);
+  return parts.join('. ');
+}
+
+function batch(dir, tableFile, outFile, maxGrade) {
+  const parsed = parseTable(fs.readFileSync(tableFile, 'utf8'));
+  const files = fs.readdirSync(dir, { withFileTypes: true })
+    .filter(e => e.isFile() && !e.name.startsWith('.'))
+    .map(e => e.name).sort((a, b) => a.localeCompare(b));
+  const lines = ['aluno,nota,comentario'];
+  for (const f of files) {
+    let g = null, error = null;
+    try { g = grade(loadCircuit(path.join(dir, f)), parsed); } catch (e) { error = e.message; }
+    const nota = g && g.passed ? maxGrade : 0;
+    lines.push([studentName(f), nota, comment(g, error)].map(csvField).join(','));
+  }
+  const out = lines.join('\n') + '\n';
+  if (outFile) fs.writeFileSync(outFile, out); else process.stdout.write(out);
+  return 0;
+}
+
+function main() {
+  const argv = process.argv.slice(2), args = [];
+  let quiet = false, outFile = null, maxGrade = 10;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--quiet') quiet = true;
+    else if (argv[i] === '--out') outFile = argv[++i];
+    else if (argv[i] === '--max') maxGrade = Number(argv[++i]);
+    else args.push(argv[i]);
+  }
+  if (args.length !== 2 || !Number.isFinite(maxGrade) || (argv.includes('--out') && !outFile)) {
+    console.error('Uso: node grader.js <circuito.json> <tabela.csv|tsv> [--quiet]\n' +
+      '     node grader.js <diretorio-de-envios> <tabela.csv|tsv> [--out notas.csv] [--max 10]');
+    return 2;
+  }
+  try {
+    if (fs.statSync(args[0]).isDirectory()) return batch(args[0], args[1], outFile, maxGrade);
+    const g = grade(loadCircuit(args[0]), parseTable(fs.readFileSync(args[1], 'utf8')));
+    printSingle(g, quiet);
+    return g.passed ? 0 : 1;
+  } catch (e) {
+    console.error('Erro: ' + e.message);
+    return 2;
+  }
 }
 
 process.exitCode = main();
